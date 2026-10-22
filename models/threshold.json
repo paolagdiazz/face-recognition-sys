@@ -1,0 +1,30 @@
+{
+  "lambda": 0.2035064995288849,
+  "lambda_ident": 0.3313121795654297,
+  "ident": {
+    "gallery_size": 51,
+    "target_fpir": 0.01,
+    "fpir_if_using_lambda": 0.3944,
+    "correct_rate_calib": 0.0394
+  },
+  "metric": "cosine",
+  "accept_if": "score >= lambda",
+  "target_far": 0.01,
+  "calib": {
+    "far": 0.009999895836545892,
+    "frr": 0.8573266619013581,
+    "eer": 0.35282345914347657,
+    "eer_threshold": 0.03041008487343788,
+    "n_genuine": 6995,
+    "n_impostor": 4896151
+  },
+  "pca": {
+    "k": 150,
+    "whiten": true,
+    "face_size": 64,
+    "blur_sigma": 1.2,
+    "explained_variance": 0.6932297557999846,
+    "n_train": 4065,
+    "sha256": "a71d7ba357ce4fe4577db6c0c6eea18132be68340613ad4c670322e9431da1d2"
+  }
+}

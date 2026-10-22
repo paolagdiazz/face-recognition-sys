@@ -1,0 +1,423 @@
+{
+ "lambda": 0.2035064995288849,
+ "lambda_ident": 0.3313121795654297,
+ "A_lfw_test": {
+  "n_images": 3215,
+  "n_people": 836,
+  "n_genuine": 7195,
+  "n_impostor": 5159310,
+  "eer": 34.62,
+  "eer_threshold": 0.0319,
+  "far_at_lambda": 1.0,
+  "frr_at_lambda": 83.68,
+  "ident": {
+   "gallery": 418,
+   "probes": 1212,
+   "unknown_probes": 1585,
+   "rank1_closed": 8.58,
+   "rank5_closed": 16.5,
+   "rank10_closed": 22.69,
+   "nota": "abierta con λ_id (calibrado para galería de 51; aquí la galería es mayor)",
+   "open_correct": 3.63,
+   "open_said_unknown": 88.2,
+   "open_fpir": 7.76
+  }
+ },
+ "B_sistema_real": {
+  "enrolled": 50,
+  "per_person": {
+   "christian_bale_2012": {
+    "n": 1,
+    "verif_accept": 0.0,
+    "ident_rank1": 0.0,
+    "ident_open_ok": 0.0,
+    "mean_score": -0.142
+   },
+   "elisabeth_II_1945": {
+    "n": 13,
+    "verif_accept": 0.0,
+    "ident_rank1": 7.69,
+    "ident_open_ok": 0.0,
+    "mean_score": 0.023
+   },
+   "jackie_chan_2000": {
+    "n": 13,
+    "verif_accept": 0.0,
+    "ident_rank1": 0.0,
+    "ident_open_ok": 0.0,
+    "mean_score": 0.012
+   },
+   "james_phelps_(gemelo_weasley)_2011": {
+    "n": 1,
+    "verif_accept": 0.0,
+    "ident_rank1": 0.0,
+    "ident_open_ok": 0.0,
+    "mean_score": 0.052
+   },
+   "keanu_reeves_2021": {
+    "n": 12,
+    "verif_accept": 8.33,
+    "ident_rank1": 8.33,
+    "ident_open_ok": 0.0,
+    "mean_score": 0.021
+   },
+   "mary-kate_olsen_2011": {
+    "n": 3,
+    "verif_accept": 0.0,
+    "ident_rank1": 0.0,
+    "ident_open_ok": 0.0,
+    "mean_score": 0.062
+   },
+   "michael_jackson_1982": {
+    "n": 12,
+    "verif_accept": 0.0,
+    "ident_rank1": 0.0,
+    "ident_open_ok": 0.0,
+    "mean_score": -0.011
+   },
+   "salma_hayek_2012": {
+    "n": 13,
+    "verif_accept": 7.69,
+    "ident_rank1": 7.69,
+    "ident_open_ok": 0.0,
+    "mean_score": 0.085
+   },
+   "serenna_williams_2017": {
+    "n": 52,
+    "verif_accept": 9.62,
+    "ident_rank1": 13.46,
+    "ident_open_ok": 0.0,
+    "mean_score": 0.047
+   }
+  },
+  "genuine_total": {
+   "n": 120,
+   "verif_accept": 5.83,
+   "ident_rank1": 8.33,
+   "ident_open_ok": 0.0
+  },
+  "impostors": {
+   "n": 4911,
+   "fpir": 0.67,
+   "fpir_si_se_usara_lambda": 33.78,
+   "verif_far_per_comparison": 0.88,
+   "most_matched": {
+    "aitana_etxebarria_(twin_melody)_2024": 4,
+    "christian_bale_2012": 2,
+    "ellen_page_2006": 2,
+    "elisabeth_II_1945": 2,
+    "jorge_javier_vazquez_2025": 2,
+    "julie_walters_2007": 2,
+    "serenna_williams_2017": 2,
+    "temuera_morrison_2002": 2
+   }
+  }
+ },
+ "C_gemelos": [
+  {
+   "foto": "Ashley_Olsen",
+   "objetivo": "mary-kate_olsen_2011",
+   "score": -0.0293,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 29
+  },
+  {
+   "foto": "Oliver_Phelps",
+   "objetivo": "james_phelps_(gemelo_weasley)_2011",
+   "score": 0.0352,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 15
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": -0.061,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 37
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.042,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 12
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": -0.018,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 32
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.0335,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 20
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.1896,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 1
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": -0.045,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 38
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.1901,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 1
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.01,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 23
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": -0.0589,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 33
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": -0.0434,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 37
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": -0.0086,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 27
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": -0.0597,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 37
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.027,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 18
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.1929,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 2
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.0308,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 15
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.052,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 14
+  },
+  {
+   "foto": "Venus_Williams",
+   "objetivo": "serenna_williams_2017",
+   "score": 0.1114,
+   "verificar_acepta": false,
+   "rango_del_objetivo": 8
+  }
+ ],
+ "D_robustez": {
+  "n_gallery": 836,
+  "n_probes": 1609,
+  "results": {
+   "original": {
+    "pca_go": {
+     "eer": 34.25,
+     "tar_at_lambda": 17.46,
+     "far_at_lambda": 1.0
+    },
+    "pca_pixeles": {
+     "eer": 35.86,
+     "tar_at_lambda": 14.79,
+     "far_at_lambda": 1.0
+    }
+   },
+   "oscura (γ=2.5)": {
+    "pca_go": {
+     "eer": 34.24,
+     "tar_at_lambda": 17.46,
+     "far_at_lambda": 1.0
+    },
+    "pca_pixeles": {
+     "eer": 36.16,
+     "tar_at_lambda": 12.8,
+     "far_at_lambda": 1.05
+    }
+   },
+   "clara (γ=0.4)": {
+    "pca_go": {
+     "eer": 34.56,
+     "tar_at_lambda": 17.46,
+     "far_at_lambda": 1.0
+    },
+    "pca_pixeles": {
+     "eer": 36.98,
+     "tar_at_lambda": 11.5,
+     "far_at_lambda": 1.03
+    }
+   },
+   "contraste x0.4": {
+    "pca_go": {
+     "eer": 34.61,
+     "tar_at_lambda": 17.53,
+     "far_at_lambda": 1.0
+    },
+    "pca_pixeles": {
+     "eer": 37.36,
+     "tar_at_lambda": 12.12,
+     "far_at_lambda": 1.1
+    }
+   },
+   "luz lateral": {
+    "pca_go": {
+     "eer": 36.54,
+     "tar_at_lambda": 12.49,
+     "far_at_lambda": 0.89
+    },
+    "pca_pixeles": {
+     "eer": 38.1,
+     "tar_at_lambda": 11.93,
+     "far_at_lambda": 0.94
+    }
+   },
+   "mascarilla": {
+    "pca_go": {
+     "eer": 37.86,
+     "tar_at_lambda": 8.89,
+     "far_at_lambda": 0.83
+    },
+    "pca_pixeles": {
+     "eer": 38.04,
+     "tar_at_lambda": 6.65,
+     "far_at_lambda": 0.62
+    }
+   },
+   "gafas de sol": {
+    "pca_go": {
+     "eer": 37.91,
+     "tar_at_lambda": 12.18,
+     "far_at_lambda": 0.99
+    },
+    "pca_pixeles": {
+     "eer": 40.9,
+     "tar_at_lambda": 5.53,
+     "far_at_lambda": 0.82
+    }
+   },
+   "media cara tapada": {
+    "pca_go": {
+     "eer": 40.13,
+     "tar_at_lambda": 4.41,
+     "far_at_lambda": 0.65
+    },
+    "pca_pixeles": {
+     "eer": 40.01,
+     "tar_at_lambda": 6.46,
+     "far_at_lambda": 0.73
+    }
+   },
+   "ruido σ=15": {
+    "pca_go": {
+     "eer": 34.62,
+     "tar_at_lambda": 16.22,
+     "far_at_lambda": 0.96
+    },
+    "pca_pixeles": {
+     "eer": 35.86,
+     "tar_at_lambda": 14.61,
+     "far_at_lambda": 0.97
+    }
+   },
+   "desenfoque σ=2": {
+    "pca_go": {
+     "eer": 33.68,
+     "tar_at_lambda": 16.47,
+     "far_at_lambda": 0.99
+    },
+    "pca_pixeles": {
+     "eer": 32.81,
+     "tar_at_lambda": 17.71,
+     "far_at_lambda": 1.01
+    }
+   },
+   "baja resolución (16px)": {
+    "pca_go": {
+     "eer": 34.07,
+     "tar_at_lambda": 15.66,
+     "far_at_lambda": 0.96
+    },
+    "pca_pixeles": {
+     "eer": 33.5,
+     "tar_at_lambda": 16.9,
+     "far_at_lambda": 0.99
+    }
+   }
+  }
+ },
+ "E_sd": {
+  "genuinos_lfw": {
+   "n": 120,
+   "acepta_con_detector": 5.83,
+   "acepta_sd_recorte_sin_alinear": 2.5
+  },
+  "no_caras": {
+   "gris uniforme": {
+    "identificar_sd": null,
+    "mas_parecido": "adam_pearson_2024",
+    "mejor_score": 0.1711
+   },
+   "negro": {
+    "identificar_sd": null,
+    "mas_parecido": "adam_pearson_2024",
+    "mejor_score": 0.1711
+   },
+   "ruido": {
+    "identificar_sd": null,
+    "mas_parecido": "samuel_l_jackson_2012",
+    "mejor_score": 0.1593
+   },
+   "degradado horizontal": {
+    "identificar_sd": null,
+    "mas_parecido": "adam_pearson_2024",
+    "mejor_score": 0.1711
+   },
+   "tablero de ajedrez": {
+    "identificar_sd": null,
+    "mas_parecido": "forest_whitaker_2014",
+    "mejor_score": 0.1516
+   }
+  }
+ }
+}

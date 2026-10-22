@@ -1,1 +1,18 @@
 Prácticas-biométricos.pdf
+
+# entorno
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# datos pesados y resultados intermedios (se regeneran con los scripts)
+work/
+lfw/
+lfw_funneled/
+*.tgz
+
+# BD y clave: NUNCA al repo (cada instalación genera las suyas con `init`)
+db/
+secrets/
+*.key
