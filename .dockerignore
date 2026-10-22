@@ -1,0 +1,11 @@
+.git
+.venv
+work
+lfw
+lfw_funneled
+*.tgz
+db
+secrets
+docs
+**/__pycache__
+.pytest_cache

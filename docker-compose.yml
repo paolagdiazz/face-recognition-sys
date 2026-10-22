@@ -1,0 +1,10 @@
+# Uso:  docker compose run --rm facerec init
+#       docker compose run --rm facerec verificar adele_2016 /fotos/x.jpg
+services:
+  facerec:
+    build: .
+    image: facerec-pcago
+    volumes:
+      - ./db:/app/db            # BD (CSV cifrado)
+      - ./secrets:/app/secrets  # clave AES (no se sube al repo)
+      - ./fotos:/fotos:ro       # pon aquí las fotos que quieras probar

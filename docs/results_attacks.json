@@ -1,0 +1,67 @@
+{
+ "1_lectura_sin_clave": {
+  "que_ve": "ids en claro; nonce y template cifrados (AES-256-GCM)",
+  "ejemplo_fila": [
+   "adam_pearson_2024",
+   "o1aRd+m/QCzQOE7X",
+   "Myy4ikilJFpswfJebt7KGOkND861FSEaqmiLUT21..."
+  ],
+  "ids_visibles": 50
+ },
+ "1_lectura_con_clave_robada": {
+  "templates_descifrados": 50,
+  "reconstruccion_orientaciones_cos_medio": 0.883,
+  "nota": "con la clave + el modelo PCA (público en el repo) se reconstruye el mapa de bordes de la cara inscrita; ver docs/figs/reconstruccion.png"
+ },
+ "2_escritura": {
+  "modificar 1 bit de un template": "DETECTADO (el conjunto de filas no coincide con el manifiesto (filas añadidas, borradas o duplicadas))",
+  "intercambiar templates entre dos ids": "DETECTADO (el conjunto de filas no coincide con el manifiesto (filas añadidas, borradas o duplicadas))",
+  "renombrar el id de una fila": "DETECTADO (el conjunto de filas no coincide con el manifiesto (filas añadidas, borradas o duplicadas))",
+  "borrar una fila": "DETECTADO (el conjunto de filas no coincide con el manifiesto (filas añadidas, borradas o duplicadas))",
+  "duplicar una fila": "DETECTADO (el conjunto de filas no coincide con el manifiesto (filas añadidas, borradas o duplicadas))",
+  "añadir una fila fabricada (sin clave)": "DETECTADO (el conjunto de filas no coincide con el manifiesto (filas añadidas, borradas o duplicadas))",
+  "vaciar campos": "DETECTADO (el conjunto de filas no coincide con el manifiesto (filas añadidas, borradas o duplicadas))",
+  "dejar solo la cabecera": "DETECTADO (falta el manifiesto o está duplicado)",
+  "rollback: restaurar una copia antigua completa del CSV": "NO detectado -> la persona dada de baja vuelve a estar inscrita",
+  "con clave robada: poner mi template bajo el id de la víctima": "NO detectado (cifrado válido). verificar('taylor_swift_2009', foto_atacante) = True"
+ },
+ "3_saltarse_partes": {
+  "_t con el template filtrado de la víctima": "verificar_t -> True",
+  "_t con vector de ceros": "RECHAZADO (template nulo)",
+  "_t con NaN": "RECHAZADO (el template contiene NaN o infinitos)",
+  "_t con infinito": "RECHAZADO (el template contiene NaN o infinitos)",
+  "_t con longitud 10": "RECHAZADO (el template debe tener exactamente 150 valores)",
+  "_t con valores enormes (1e9)": "RECHAZADO (valores del template fuera de rango)",
+  "_t con texto": "RECHAZADO (template con valores no numéricos)",
+  "_t con el template medio de todos los inscritos": {
+   "ids_que_acepta_verificar_t": 19,
+   "identificar_t": null,
+   "mejor_score": 0.3302
+  },
+  "_t fuerza bruta: 200.000 templates aleatorios": {
+   "aciertos_contra_un_id_concreto": 1177,
+   "aciertos_identificar_t_alguien": 161,
+   "aciertos_verificar_t_contra_algun_id": 51903,
+   "max_score": 0.4381
+  },
+  "_t hill-climbing CON acceso al score": {
+   "consultas_hasta_aceptar": 19,
+   "score_final": 0.2121,
+   "nota": "por eso la CLI solo devuelve sí/no y no el score"
+  },
+  "identificar_sd con 'gris uniforme'": "None",
+  "identificar (con detector) con 'gris uniforme'": "RECHAZADO (no se ha detectado ninguna cara)",
+  "identificar_sd con 'ruido'": "None",
+  "identificar (con detector) con 'ruido'": "RECHAZADO (no se ha detectado ninguna cara)",
+  "identificar_sd con 'tablero de ajedrez'": "None",
+  "identificar (con detector) con 'tablero de ajedrez'": "RECHAZADO (no se ha detectado ninguna cara)",
+  "_sd con imagen de 10x10": "RECHAZADO (imagen _sd demasiado pequeña (mínimo 32px))",
+  "inscribir id \"=cmd|' /C calc'!A0\"": "RECHAZADO (id no válido: 1-64 caracteres [A-Za-z0-9...)",
+  "inscribir id '../../etc/passwd'": "RECHAZADO (id no válido: 1-64 caracteres [A-Za-z0-9...)",
+  "inscribir id ''": "RECHAZADO (id no válido: 1-64 caracteres [A-Za-z0-9...)",
+  "inscribir id 'aaaaaaaaaaaaaaaaaaaa'": "RECHAZADO (id no válido: 1-64 caracteres [A-Za-z0-9...)",
+  "inscribir id '__manifest__'": "RECHAZADO (id no válido: 1-64 caracteres [A-Za-z0-9...)",
+  "re-inscribir un id existente con otra cara": "RECHAZADO (el id 'taylor_swift_2009' ya está inscrito (bórralo antes con `borrar`))",
+  "verificar un id que no existe": "False"
+ }
+}
