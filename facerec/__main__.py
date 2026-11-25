@@ -7,7 +7,7 @@
     python -m facerec inscribir_sd <id> <foto>   (y verificar_sd, identificar_sd)
     python -m facerec inscribir_t  <id> <template>  (y verificar_t, identificar_t)
     python -m facerec extraer [--sd] <foto>      # imprime el template (150 valores)
-    python -m facerec borrar <id>
+    python -m facerec borrar <id> [--token T]   # requiere FACEREC_ADMIN_TOKEN
     python -m facerec listar
 
 <template> puede ser un fichero (.npy, .csv/.txt con valores separados por comas)
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -57,7 +58,7 @@ def cmd_init(args):
         return 2
     if db_path.exists():
         db_path.unlink()
-    s = SistemaBiometrico(db_path=db_path, key=load_key(key_path))
+    s = SistemaBiometrico(db_path=db_path, key=load_key(key_path), crear_bd=True)
     fotos = sorted(p for p in Path(args.data).iterdir()
                    if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})
     ok = 0
@@ -97,7 +98,9 @@ def main(argv=None):
     q.add_argument("foto")
     q.add_argument("--sd", action="store_true")
     q.add_argument("--out", help="guardar el template en este fichero .npy")
-    sub.add_parser("borrar").add_argument("id")
+    q = sub.add_parser("borrar")
+    q.add_argument("id")
+    q.add_argument("--token", default=None, help="token de administrador (debe coincidir con FACEREC_ADMIN_TOKEN)")
     sub.add_parser("listar")
 
     args = ap.parse_args(argv)
@@ -107,7 +110,7 @@ def main(argv=None):
     try:
         if args.cmd == "init":
             if args.db is None:
-                args.db = str(C.DEFAULT_DB_PATH)
+                args.db = os.environ.get(C.DB_PATH_ENV_VAR) or str(C.DEFAULT_DB_PATH)
             return cmd_init(args)
         s = SistemaBiometrico(db_path=args.db)
         c = args.cmd
@@ -136,7 +139,7 @@ def main(argv=None):
             print(",".join(f"{v:.6f}" for v in t))
             return 0
         if c == "borrar":
-            s.borrar(args.id)
+            s.borrar(args.id, args.token)
             return _out({"ok": True})
         if c == "listar":
             return _out({"inscritos": s.inscritos()})

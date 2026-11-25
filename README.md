@@ -1,263 +1,399 @@
 # Reconocimiento facial con PCA GO
 
-Práctica de **Sistemas Biométricos (UMA)**. Es un sistema de reconocimiento facial basado en **PCA GO** (*PCA on Image Gradient Orientations*, IGO-PCA). Usa YuNet como detector y una base de datos en CSV cifrada con AES-256-GCM. Incluye los 9 métodos que pide el enunciado, la evaluación completa y una batería de ataques.
+Práctica de Sistemas Biométricos (UMA). Es un sistema de reconocimiento facial en Python que usa **PCA GO** (PCA sobre la orientación de los gradientes de la imagen, también llamado IGO-PCA). Detecta la cara con YuNet y guarda las plantillas (templates) de las personas inscritas en un CSV cifrado con AES-256-GCM. Tiene los 9 métodos que pide el enunciado, scripts para evaluarlo y una batería de ataques.
 
-> **Objetivo de la práctica:** que el grupo rival no encuentre defectos que no conozcamos. Por eso la sección [Debilidades conocidas](#9-debilidades-conocidas) es la más importante de este README.
-
----
+El sistema lo va a probar otro grupo para intentar romperlo. Por eso el apartado más importante de este README es el [9, Limitaciones conocidas](#9-limitaciones-conocidas): ahí está todo lo que sabemos que falla. Si el otro grupo encuentra algo que no está ahí, es un fallo nuestro.
 
 ## Índice
-1. [Uso rápido](#1-uso-rápido)
-2. [Los 9 métodos](#2-los-9-métodos)
-3. [Cómo funciona PCA GO](#3-cómo-funciona-pca-go)
-4. [Decisiones de diseño](#4-decisiones-de-diseño)
-5. [Entrenamiento y reproducibilidad](#5-entrenamiento-y-reproducibilidad)
-6. [Experimentos (elección de parámetros)](#6-experimentos-elección-de-parámetros)
-7. [Evaluación](#7-evaluación)
-8. [Seguridad y ataques](#8-seguridad-y-ataques)
-9. [Debilidades conocidas](#9-debilidades-conocidas)
-10. [Pendiente](#10-pendiente)
-11. [Estructura del repositorio](#11-estructura-del-repositorio)
-12. [Referencias](#12-referencias)
+
+1. [Puesta en marcha](#1-puesta-en-marcha)
+2. [Cómo se usa](#2-cómo-se-usa)
+3. [Cómo funciona por dentro](#3-cómo-funciona-por-dentro)
+4. [Qué hace cada fichero](#4-qué-hace-cada-fichero)
+5. [Decisiones de diseño](#5-decisiones-de-diseño)
+6. [Seguridad](#6-seguridad)
+7. [Evaluación y resultados](#7-evaluación-y-resultados)
+8. [Cómo probar el sistema](#8-cómo-probar-el-sistema)
+9. [Limitaciones conocidas](#9-limitaciones-conocidas)
+10. [Reentrenar el modelo](#10-reentrenar-el-modelo)
+11. [Problemas típicos](#11-problemas-típicos)
+12. [Pendiente](#12-pendiente)
+13. [Referencias](#13-referencias)
 
 ---
 
-## 1. Uso rápido
+## 1. Puesta en marcha
 
-El repositorio ya trae el modelo entrenado (`models/`), así que **no hace falta LFW para usar el sistema**. Solo hace falta para reentrenar o reevaluar.
+El repositorio ya trae el modelo entrenado en `models/`, así que **no hace falta descargar LFW** para usar el sistema. LFW solo se necesita para reentrenar o reevaluar (apartado 10).
 
-### Opción A: Python local (3.10 o superior)
+### Con Python (3.10 o superior)
+
+En Linux o Mac:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
+```
 
-python -m facerec init             # genera la clave e inscribe todas las fotos de data/
+En Windows (PowerShell):
+
+```powershell
+py -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Después, para crear la clave y la base de datos con las fotos de `data/`:
+
+```bash
+python -m facerec init
 python -m facerec listar
+```
+
+`init` genera la clave de cifrado en `secrets/db.key`, inscribe las 50 fotos de `data/` y deja la base de datos en `db/templates.csv`. Esas dos carpetas (`db/` y `secrets/`) no se suben a git: cada persona que instale el sistema genera las suyas.
+
+Una prueba rápida:
+
+```bash
 python -m facerec verificar taylor_swift_2009 data/taylor_swift_2009.jpg
 python -m facerec identificar data/adele_2016.jpg
 ```
 
-### Opción B: Docker
+### Con Docker
 
 ```bash
 mkdir -p db secrets fotos
 docker compose build
 docker compose run --rm facerec init
-docker compose run --rm facerec identificar /fotos/una_foto.jpg     # pon la foto en ./fotos/
+docker compose run --rm facerec identificar /fotos/una_foto.jpg
 ```
 
-`db/` (la BD) y `secrets/` (la clave) se montan como volúmenes. **No se suben al repo**: cada instalación genera su propia clave con `init`.
+Las fotos que quieras probar tienen que estar en `./fotos`. El `Dockerfile` está escrito, pero no hemos podido construir la imagen (ver [Pendiente](#12-pendiente)).
 
-### La clave de la BD
+### Dónde está la clave
 
-La clave se busca en este orden:
-1. la variable `FACEREC_DB_KEY` (base64 de 32 bytes),
-2. el fichero indicado en `FACEREC_DB_KEY_FILE`,
-3. `secrets/db.key`, que crea `init`.
+El sistema busca la clave de la base de datos en este orden:
 
-Para usar otra BD se puede usar `--db ruta.csv` o la variable `FACEREC_DB_PATH`.
+1. la variable de entorno `FACEREC_DB_KEY` (32 bytes en base64);
+2. el fichero que indique `FACEREC_DB_KEY_FILE`;
+3. `secrets/db.key`, que es el que crea `init`.
+
+Para usar otra base de datos distinta de `db/templates.csv` se pasa `--db ruta.csv` o se define `FACEREC_DB_PATH` (esto también vale para `init`).
+
+### Variables de entorno
+
+| Variable | Para qué sirve |
+|---|---|
+| `FACEREC_DB_KEY` | Clave de cifrado en base64 |
+| `FACEREC_DB_KEY_FILE` | Fichero que contiene la clave |
+| `FACEREC_DB_PATH` | Ruta de la base de datos |
+| `FACEREC_ADMIN_TOKEN` | Contraseña de administrador. Sin ella, `borrar` está deshabilitado |
+| `FACEREC_RATE_LIMIT` | Rechazos permitidos por minuto (por defecto 30). Con `0` se desactiva el límite |
+
+En PowerShell las variables se definen así: `$env:FACEREC_RATE_LIMIT = "0"`.
+
+### Si vais a probar el sistema con muchas llamadas
+
+El sistema cuenta los rechazos de `verificar*` e `identificar*` y, al llegar a 30 en un minuto sobre el mismo id (o 30 en `identificar`), responde `RateLimitError` hasta que pase ese minuto. Está pensado para frenar los ataques de fuerza bruta. Si vais a lanzar miles de comparaciones para evaluar el sistema, desactivad el límite con `FACEREC_RATE_LIMIT=0`. Los scripts de `scripts/` ya lo hacen por su cuenta.
 
 ---
 
-## 2. Los 9 métodos
+## 2. Cómo se usa
 
 ### Desde Python
 
 ```python
 from facerec import SistemaBiometrico
-s = SistemaBiometrico()
+s = SistemaBiometrico()          # la BD tiene que existir (la crea `init`)
 
-s.inscribir("ana", "ana.jpg")          # foto -> detector -> extractor -> BD
-s.verificar("ana", "ana2.jpg")         # -> True / False
-s.identificar("ana2.jpg")              # -> "ana" / None (desconocido)
+s.inscribir("ana", "ana.jpg")    # foto -> detector -> extractor -> BD
+s.verificar("ana", "ana2.jpg")   # True / False
+s.identificar("ana2.jpg")        # "ana" o None (desconocido)
 
-s.inscribir_sd("ana", "cara.jpg")      # sin detector: la foto debe ser YA la cara
+s.inscribir_sd("ana", "cara.jpg")   # sin detector: la foto ya es la cara
 s.verificar_sd("ana", "cara.jpg")
 s.identificar_sd("cara.jpg")
 
-t = s.extraer("ana.jpg")               # template: 150 floats
-s.inscribir_t("ana", t)                # sin detector ni extractor
+t = s.extraer("ana.jpg")         # el template: 150 números
+s.inscribir_t("ana", t)          # sin detector ni extractor
 s.verificar_t("ana", t)
 s.identificar_t(t)
 ```
 
-`foto` puede ser una ruta, `bytes` o un array de numpy (BGR o gris). `template` puede ser un array, una lista o un texto `"v1,v2,...,v150"`.
+Para crear una base de datos vacía desde código se usa `SistemaBiometrico(crear_bd=True)`. Sin eso, si la BD no existe da error (es a propósito, ver [6](#6-seguridad)).
 
-### Desde la línea de comandos
+La foto puede ser una ruta, unos `bytes` o un array de numpy (BGR o gris). El template puede ser un array, una lista o un texto `"v1,v2,...,v150"`.
+
+### Desde la terminal
 
 ```bash
 python -m facerec inscribir    <id> <foto>
 python -m facerec verificar    <id> <foto>
 python -m facerec identificar  <foto>
-python -m facerec inscribir_sd <id> <foto>     # y verificar_sd / identificar_sd
-python -m facerec inscribir_t  <id> <template> # y verificar_t / identificar_t
-python -m facerec extraer [--sd] <foto> [--out t.npy]   # imprime el template
-python -m facerec borrar <id>
+python -m facerec inscribir_sd <id> <foto>      # y verificar_sd, identificar_sd
+python -m facerec inscribir_t  <id> <template>  # y verificar_t, identificar_t
+python -m facerec extraer [--sd] <foto> [--out t.npy]
+python -m facerec borrar <id> --token <token>
 python -m facerec listar
 ```
 
-Un `<template>` puede ser un fichero `.npy`, un `.csv` o `.txt` con valores separados por comas, o los valores escritos directamente.
+Un `<template>` puede ser un `.npy`, un `.csv` o `.txt` con valores separados por comas, o los valores escritos directamente.
 
-**Salida:** JSON por stdout. El código de salida es **0** si se acepta o todo va bien, **1** si se rechaza o la persona es desconocida, y **2** si hay un error.
+La salida es un JSON por pantalla. El código de salida es 0 si se acepta o todo va bien, 1 si se rechaza o la persona es desconocida, y 2 si hay un error. **La terminal nunca imprime el score**, solo sí/no o el id (explicado en [6](#6-seguridad)).
 
-### Comportamiento de cada operación
-
-| Situación | Comportamiento |
-|---|---|
-| `verificar` | `True` si la similitud coseno con el template inscrito es ≥ **λ = 0.2035** |
-| `identificar` | Identificación **abierta**: devuelve el más parecido si su similitud es ≥ **λ_id = 0.3313**; si no, devuelve `None` |
-| Inscribir un id que ya existe | **Error**. Hay que `borrar` antes |
-| `verificar` con un id que no existe | `False`, igual que un rechazo, para no revelar si el id existe |
-| Foto sin cara | Error `FaceError` |
-| Foto con varias caras | Se usa la de **mayor área** |
-| Template `_t` con longitud distinta de 150, NaN, inf, valores de más de 1000 o vector nulo | Error `TemplateError` |
-| Id con caracteres raros | Error. Se aceptan 1–64 caracteres `[A-Za-z0-9 _-().']`, empezando por letra o número |
-| BD manipulada o clave incorrecta | Error `DBIntegrityError`: el sistema **no opera** (*fail closed*) |
-
----
-
-## 3. Cómo funciona PCA GO
-
-PCA GO aplica PCA, pero no sobre el brillo de los píxeles sino sobre **la dirección de los bordes**. La dirección del gradiente casi no cambia cuando cambia la luz, y en las zonas tapadas las diferencias de dirección son aleatorias y tienden a cancelarse.
-
-```
-foto ─► YuNet (cara + 5 landmarks) ─► alineación por los ojos ─► 64×64 gris
-     ─► blur gaussiano σ=1.2 ─► Sobel 3×3 (Gx, Gy) ─► φ = atan2(Gy, Gx)
-     ─► [cos φ, sin φ] por píxel = vector de 8.192 ─► PCA (k=150, whitening)
-     ─► template de 150 floats ─► similitud coseno ─► ≥ λ ?
-```
-
-- Se usa **cos y sin** en lugar del ángulo directamente para que 1° y 359° salgan parecidos.
-- El PCA se entrena con **4.065 caras de LFW** y se guarda en `models/pca_igo.npz` (media + 150 componentes + autovalores). **No se reentrena al inscribir a nadie**.
-- Con **whitening**, cada componente se divide por la raíz de su autovalor, de modo que todas pesan lo mismo en el coseno. Mejora el EER en unos 2 puntos (ver §6).
-
----
-
-## 4. Decisiones de diseño
-
-| # | Decisión | Elección | Por qué |
-|---|---|---|---|
-| 1 | Detector | **YuNet** (`cv2.FaceDetectorYN`) | Viene con OpenCV, así que no añade dependencias pesadas. Da 5 landmarks (ojos) para alinear y detectó el 100 % de las caras del dataset y de LFW |
-| 2 | Confianza mínima del detector | **0.7** | Todas las caras del dataset dan ≥ 0.86. Así se descartan detecciones dudosas |
-| 3 | Varias caras en la foto | **La de mayor área** | `adam_pearson_2024` tiene 3 caras detectadas. Si se rechazaran las fotos con varias caras, no se podría inscribir a esa persona |
-| 4 | Alineación | **Similitud** (rotación + escala + traslación) con los 2 ojos en posiciones fijas | PCA GO compara la posición de los bordes, así que sin alinear falla |
-| 5 | Tamaño de la cara | **64×64**, recorte ajustado de cejas a barbilla (ojos en (0.30, 0.33) y (0.70, 0.33)) | La cara más pequeña del dataset mide 87 px, así que nunca se agranda. 32, 48, 64 y 80 dan resultados casi iguales (§6) |
-| 6 | Pre-proceso del gradiente | **Blur gaussiano σ=1.2 + Sobel 3×3** | El blur reduce el ruido en zonas planas (el ángulo ahí es aleatorio). Mejora el EER de 36,7 % a 35,3 % |
-| 7 | Datos para entrenar el PCA | **LFW**, personas con 1 sola foto (4.065), pasadas por **nuestro** pipeline | Con las 50 fotos del profe saldrían como mucho 49 componentes, sobreajustados |
-| 8 | Famosos solapados | Se **excluyen** de entrenamiento y calibración las 9 personas que están en el dataset del profe y en LFW, más 3 gemelos o hermanos | Si no, las métricas salen infladas. Se usan como fotos de prueba reales |
-| 9 | Nº de componentes | **k = 150** | Mejor EER en validación junto con k=100–200 (§6) |
-| 10 | Distancia | **Similitud coseno** | Los vectores IGO tienen norma constante y la comparación teórica de IGO es una correlación |
-| 11 | Umbral de verificación λ | **0.2035**, calibrado en LFW para **FAR = 1 %** | Sistema de seguridad: se prioriza no dejar pasar impostores |
-| 12 | Umbral de identificación λ_id | **0.3313**, calibrado para **FPIR = 1 %** con 51 inscritos | Con λ, el 39 % de los desconocidos acaba identificado como alguien, porque se compara contra 51 personas y el FAR se acumula |
-| 13 | Tipo de identificación | **Abierta** (puede devolver "desconocido") | La identificación cerrada siempre identifica a alguien, y es trivial de explotar |
-| 14 | Id que ya existe | **Error** | Si se permitiera sobrescribir, se podría suplantar a alguien simplemente reinscribiéndose con su id |
-| 15 | Ruta `_sd` | Escala de grises y redimensionado a 64×64, **sin alinear** | No hay detector, así que no hay landmarks. Se rechazan las imágenes de menos de 32 px |
-| 16 | Ruta `_t` | Validar longitud, tipo, finitud, rango y norma | Un NaN o un vector nulo romperían el coseno |
-| 17 | Formato de la BD | CSV `id,nonce,data` + una fila `__manifest__` | El enunciado exige CSV |
-| 18 | Protección de la BD | **AES-256-GCM por fila**, con el id como dato asociado, más un **manifiesto** autenticado del conjunto de filas | Da confidencialidad e integridad, impide mover templates entre ids y detecta filas borradas, añadidas o duplicadas |
-| 19 | Clave | Fuera del repo y de la imagen Docker (`secrets/` o variable de entorno) | Si la clave estuviera junto al CSV, cifrar no serviría de nada |
-| 20 | Qué devuelve la CLI | Solo **sí/no** o el id, **nunca el score** | Con el score, un ataque *hill-climbing* entra en 19 consultas (§8) |
-| 21 | Métricas | FAR/FRR/EER y DET para verificación; rank-k, CMC y FPIR para identificación | Son las estándar en biometría |
-| 22 | Persona nº 51 | **Zohran Mamdani** | Elección del grupo |
-| 23 | Docker | `python:3.12-slim` + `opencv-python-headless` + `numpy` + `cryptography` | Imagen ligera, sin compilar nada |
-
----
-
-## 5. Entrenamiento y reproducibilidad
-
-Todo lo que hay en `models/` y `docs/` se regenera con estos pasos:
+Para borrar a alguien hace falta definir antes la variable `FACEREC_ADMIN_TOKEN` y pasar el mismo valor con `--token`:
 
 ```bash
-pip install -r requirements-dev.txt
-
-# 0. Descargar LFW (~230 MB). Queda en ~/scikit_learn_data/lfw_home/lfw_funneled
-python -c "from sklearn.datasets import fetch_lfw_people; fetch_lfw_people()"   # requiere scikit-learn
-
-# 1. Pasar LFW por nuestro detector + alineación y crear los splits (~1 min)
-python scripts/prepare_lfw.py --lfw ~/scikit_learn_data/lfw_home/lfw_funneled
-
-# 2. Experimentos: tamaño x k x whitening, blur y comparación con PCA de píxeles (~4 min)
-python scripts/experiments.py
-
-# 3. Entrenar el PCA definitivo y calibrar λ y λ_id
-python scripts/train.py
-
-# 4. Crear la BD
-python -m facerec init --force
-
-# 5. Evaluación y ataques
-python scripts/evaluate.py --lfw ~/scikit_learn_data/lfw_home/lfw_funneled
-python scripts/attacks.py
-
-# Tests
-python -m pytest -q
+FACEREC_ADMIN_TOKEN=xxx python -m facerec borrar ana --token xxx
 ```
 
-### Splits de LFW
+### Los 9 métodos
 
-Los splits se hacen **por persona**, de modo que nadie aparece en dos splits:
+| Variante | Inscribir | Verificar | Identificar |
+|---|---|---|---|
+| Completa (detector + extractor) | `inscribir(id, foto)` | `verificar(id, foto)` | `identificar(foto)` |
+| Sin detector | `inscribir_sd(id, foto)` | `verificar_sd(id, foto)` | `identificar_sd(foto)` |
+| Con template | `inscribir_t(id, template)` | `verificar_t(id, template)` | `identificar_t(template)` |
 
-| Split | Fotos | Personas | Uso |
-|---|---:|---:|---|
-| `train` | 4.065 | 4.065 | Entrenar el PCA (personas con 1 sola foto) |
-| `calib` | 4.118 | 836 | Elegir parámetros y calibrar λ y λ_id |
-| `test` | 4.911 | 836 | **Solo** la evaluación final. Nunca se usó para decidir nada |
-| `overlap` | 120 | 9 | Famosos que también están inscritos: pruebas reales contra el sistema |
-| `twin` | 19 | 3 | Ashley Olsen, Oliver Phelps y Venus Williams: ataque de gemelos |
+Además hay `extraer(foto)` y `extraer_sd(foto)` (devuelven el template), `borrar(id, token)` y `inscritos()`.
 
-En `calib` y `test` se usan como mucho 10 fotos por persona, para que George W. Bush (530 fotos) no domine los resultados.
+### Qué hace el sistema en cada situación
 
----
-
-## 6. Experimentos (elección de parámetros)
-
-EER en `calib` (cuanto más bajo, mejor). El PCA se entrena con `train`. Datos completos en `docs/experiments.json`.
-
-**Tamaño × nº de componentes (con whitening, blur 0.8):**
-
-| Tamaño | k=25 | k=50 | k=100 | k=150 | k=200 | k=300 | k=400 |
-|---|---|---|---|---|---|---|---|
-| 32×32 | 38,3 % | 36,4 % | **34,9 %** | 35,4 % | 35,8 % | 36,9 % | 37,7 % |
-| 48×48 | 38,9 % | 37,2 % | 35,8 % | 35,5 % | 35,5 % | 36,4 % | 36,4 % |
-| 64×64 | 39,2 % | 38,0 % | 36,5 % | 35,6 % | 35,8 % | 36,0 % | 36,5 % |
-| 80×80 | 39,3 % | 38,1 % | 36,5 % | 36,2 % | 36,0 % | 36,6 % | 37,0 % |
-
-- **Sin whitening** todo empeora unos 2 puntos (37–40 %).
-- **Blur antes del Sobel** (64×64, k=150): σ=0 → 36,7 %; 0,5 → 36,4 %; 0,8 → 35,6 %; **1,2 → 35,3 %**; 1,5 → 35,2 %; 2,0 → 34,9 %. Se elige σ=1,2, porque más blur equivale a bajar la resolución y las mejoras ya son marginales.
-- **PCA de píxeles** (*eigenfaces*, la línea base): 40,3 % sin whitening y 37,0 % con whitening. PCA GO es mejor, pero por poco en fotos sin alterar. Donde se nota la diferencia es con cambios de luz y oclusiones (§7.D).
-- En una exploración puntual (no incluida en `experiments.py`) se probaron otros recortes. Uno algo más ajustado dio 35,1 %, una diferencia despreciable. Los recortes todavía más ajustados o sin frente fueron peores, entre 35,9 % y 36,7 %.
-
-**Conclusión:** las diferencias entre configuraciones son de 1–2 puntos. El techo lo pone el método (PCA, lineal y no supervisado), no los parámetros. Se eligen **64×64, k=150, whitening y σ=1,2**, que está a menos de 0,5 puntos del mejor resultado.
+| Situación | Qué pasa |
+|---|---|
+| `verificar` | Devuelve `True` si la similitud coseno con el template inscrito es **≥ λ = 0,2035** |
+| `identificar` | Es **identificación abierta**: devuelve el id más parecido solo si su similitud es **≥ λ_id = 0,3313**; si no, devuelve `None` |
+| Inscribir un id que ya existe | Da error. Primero hay que borrarlo, y borrar necesita el token de administrador |
+| `verificar` con un id que no existe | Devuelve `False`, igual que un rechazo (aunque el id sí se puede descubrir de otras formas, ver D21) |
+| Foto sin cara | Error `FaceError` |
+| Foto con varias caras | Se usa la de mayor área, salvo que la segunda tenga al menos el 50 % de su área: entonces es ambigua y da `FaceError` |
+| Template `_t` que se parece a demasiados ids a la vez | `verificar_t` lo rechaza (defensa "lobo", explicada en [6](#6-seguridad)) |
+| Muchos rechazos seguidos | `RateLimitError` hasta que acabe la ventana de 60 s |
+| Dos procesos escribiendo a la vez | Se ponen en cola con un bloqueo de fichero, no se pierde ninguna inscripción |
+| Template `_t` con longitud distinta de 150, NaN, infinitos, valores de más de 1000 o vector nulo | Error `TemplateError` |
+| Id con caracteres raros | Error. Se admiten de 1 a 64 caracteres entre letras, números, espacio y `_ - ( ) . '`, empezando por letra o número, sin salto de línea |
+| BD manipulada, clave incorrecta, CSV vacío o borrado | Error `DBIntegrityError`. El sistema no funciona hasta que se arregle (*fail closed*). Solo `init` crea una BD nueva |
+| Imagen que declara más de 8000 px de lado | Error `FaceError`, antes de decodificarla |
 
 ---
 
-## 7. Evaluación
+## 3. Cómo funciona por dentro
 
-Ejecutar `python scripts/evaluate.py`. Los resultados completos están en `docs/results_eval.json` y las figuras en `docs/figs/`.
+### La idea de PCA GO
 
-### A. LFW `test` (836 personas nunca vistas)
+PCA normal trabaja con el brillo de los píxeles. PCA GO trabaja con la **dirección de los bordes**. Esa dirección casi no cambia si la foto está más clara o más oscura, y en las zonas tapadas o planas el ruido tiende a cancelarse. Por eso aguanta mejor los cambios de luz que las *eigenfaces*.
+
+### El recorrido de una foto
+
+```
+foto
+ └─ YuNet: detecta la cara y 5 puntos (ojos, nariz, boca)
+     └─ alineación: se gira y escala para que los ojos queden en posiciones fijas
+         └─ recorte de 64×64 en gris
+             └─ blur gaussiano (σ = 1,2) y filtro Sobel 3×3 -> gradiente (Gx, Gy)
+                 └─ ángulo φ = atan2(Gy, Gx) de cada píxel
+                     └─ vector con [cos φ, sin φ] de cada píxel (8.192 números)
+                         └─ PCA con 150 componentes y whitening
+                             └─ template: 150 números
+                                 └─ similitud coseno contra los templates de la BD
+```
+
+Detalles que conviene saber:
+
+- Se usan el coseno y el seno del ángulo, y no el ángulo, para que 1° y 359° queden cerca.
+- El PCA se entrena una sola vez con **4.065 caras de LFW** (personas con una única foto) pasadas por nuestro mismo pipeline. Se guarda en `models/pca_igo.npz` y **no se reentrena al inscribir a alguien**.
+- El whitening divide cada componente por la raíz de su autovalor, para que todas pesen igual en el coseno. Mejora el EER en unos 2 puntos.
+- Para decidir, se compara el score con un umbral: λ para verificar y λ_id para identificar.
+
+### La ruta sin detector (`_sd`)
+
+Los métodos `_sd` se saltan YuNet. La imagen se pasa a gris y se redimensiona a 64×64 **sin alinear ni recortar**, así que se espera que la foto ya sea la cara. Se rechaza cualquier imagen de menos de 32 px por lado. Como no hay alineación, esta ruta reconoce peor (ver [7](#7-evaluación-y-resultados)).
+
+### La ruta con template (`_t`)
+
+Los métodos `_t` se saltan el detector y el extractor y trabajan directamente con los 150 números. Antes de usarlos se comprueba que el vector tiene la longitud correcta, que no tiene NaN ni infinitos, que ningún valor pasa de 1000 en valor absoluto y que no es el vector cero.
+
+### La base de datos
+
+Es un CSV con tres columnas, `id,nonce,data`:
+
+```
+id,nonce,data
+adele_2016,<nonce en base64>,<template cifrado en base64>
+...
+__manifest__,<nonce en base64>,<resumen cifrado de todas las filas>
+```
+
+- Cada template (150 floats) se cifra con AES-256-GCM. El id va como dato asociado, así que si alguien mueve un template a otro id, el descifrado falla.
+- La última fila (`__manifest__`) autentica el conjunto de filas completo. Gracias a ella se detectan filas borradas, añadidas o duplicadas.
+- Los ids se ven en claro. Los templates no.
+- Si el CSV no existe o está vacío, el sistema da error en vez de tratarlo como una BD vacía. Si lo tratara como vacía, alguien sin la clave podría borrar el fichero y volver a inscribir a una víctima con su propia cara.
+
+---
+
+## 4. Qué hace cada fichero
+
+### `facerec/` (el sistema)
+
+| Fichero | Qué hace |
+|---|---|
+| `__init__.py` | Exporta la clase `SistemaBiometrico` y los errores. Fija el límite de píxeles de OpenCV antes de importarlo |
+| `__main__.py` | La terminal (`python -m facerec ...`) |
+| `config.py` | Todos los parámetros en un único sitio: tamaños, umbrales del detector, nombres de variables de entorno, límites |
+| `detector.py` | Carga de imágenes (con comprobación de tamaño y respaldo de Pillow), el detector YuNet, la regla de varias caras, la alineación por los ojos y el recorte de `_sd` |
+| `igo.py` | El extractor: vector de gradientes, PCA (entrenar, proyectar, reconstruir) y coseno |
+| `db.py` | La base de datos cifrada: clave, cifrado por fila, manifiesto, comprobación de ids |
+| `filelock.py` | Bloqueo de fichero (`.lock`) para que dos procesos no pisen la BD a la vez |
+| `ratelimit.py` | Límite de intentos fallidos, guardado en `<bd>.ratelimit.json` |
+| `system.py` | La clase `SistemaBiometrico`: los 9 métodos, `borrar`, `inscritos`, la defensa "lobo" |
+| `metrics.py` | FAR, FRR, EER, curvas DET y CMC para la evaluación |
+
+### `scripts/` (evaluación y pruebas)
+
+| Script | Qué hace |
+|---|---|
+| `prepare_lfw.py` | Pasa LFW por el detector y la alineación y crea los splits (train, calib, test, overlap, twin) |
+| `experiments.py` | Compara tamaños, número de componentes, whitening y blur (resultados en `docs/experiments.json`) |
+| `train.py` | Entrena el PCA definitivo y calibra λ y λ_id |
+| `evaluate.py` | La evaluación completa (bloques A a E) y las figuras de `docs/figs/` |
+| `attacks.py` | La batería de ataques. Trabaja siempre sobre una copia de la BD |
+| `pruebas_extra.py` | Pruebas sin LFW: fotos reales de `data/`, robustez, regresiones de seguridad y concurrencia |
+| `probar_fotos.py` | Prueba el sistema con vuestras fotos (Mamdani, impresas, en pantalla, varias caras) |
+| `generar_pruebas.py` | Genera variantes **simuladas** a partir de `data/` (luz, giro, gafas, mascarilla, pantalla, papel, dos caras) |
+
+### Resto
+
+| Carpeta o fichero | Contenido |
+|---|---|
+| `models/` | YuNet (`.onnx`), el PCA (`pca_igo.npz`) y los umbrales (`threshold.json`) |
+| `data/` | Las fotos de inscripción: 49 del profesor y la de Mamdani |
+| `docs/` | Resultados en JSON y figuras |
+| `tests/test_system.py` | 39 tests con pytest |
+| `tests/*_simulada/` | Fotos simuladas, cada carpeta con su `LEEME.txt` |
+| `Dockerfile`, `docker-compose.yml` | Para ejecutarlo en contenedor |
+| `requirements.txt`, `requirements-dev.txt` | Dependencias (la segunda añade matplotlib y pytest) |
+
+---
+
+## 5. Decisiones de diseño
+
+| Tema | Elección | Motivo |
+|---|---|---|
+| Detector | YuNet (viene en OpenCV) | No añade dependencias pesadas, da 5 puntos para alinear y detectó todas las caras del dataset y de LFW |
+| Confianza mínima | 0,7 | Todas las caras del dataset dan 0,86 o más. Así se descartan detecciones dudosas |
+| Varias caras | Se usa la mayor; si hay otra con el 50 % o más de su área, error | `adam_pearson_2024` tiene 3 caras pero la suya domina (la segunda mide el 21 %). Elegir en silencio entre dos caras parecidas sería comparar a la persona equivocada |
+| Alineación | Por los dos ojos, a posiciones fijas | PCA GO compara dónde están los bordes, así que sin alinear falla |
+| Tamaño de cara | 64×64, de cejas a barbilla | Con 32, 48, 64 y 80 los resultados son casi iguales |
+| Preproceso | Blur σ = 1,2 y Sobel 3×3 | En zonas planas el ángulo es aleatorio y el blur lo calma. Baja el EER del 36,7 % al 35,3 % |
+| Datos de entrenamiento | LFW, personas con una sola foto (4.065) | Con las 50 fotos del profesor solo saldrían 49 componentes y se sobreajustaría |
+| Famosos repetidos | Se excluyen del entrenamiento y la calibración las 9 personas que están en LFW y en el dataset, más 3 gemelos o hermanos | Si no, las métricas salen infladas. Se usan aparte como pruebas reales |
+| Componentes | k = 150 | Mejor EER junto con k entre 100 y 200 |
+| Distancia | Similitud coseno | Los vectores IGO tienen norma constante y la comparación teórica de IGO es una correlación |
+| Umbral de verificar (λ) | 0,2035, calibrado en LFW para FAR = 1 % | Es un sistema de seguridad: se prefiere no dejar pasar impostores |
+| Umbral de identificar (λ_id) | 0,3313, calibrado para FPIR = 1 % con 51 personas | Con λ, el 39 % de los desconocidos acabaría identificado como alguien, porque el FAR se acumula al comparar contra toda la galería |
+| Tipo de identificación | Abierta (puede responder "desconocido") | La cerrada siempre devuelve a alguien y es trivial de explotar |
+| Id repetido | Error. Borrar exige token de administrador | Si se pudiera sobrescribir, o borrar sin protección, cualquiera suplantaría a otra persona reinscribiéndose con su id |
+| Qué devuelve la terminal | Solo sí/no o el id, nunca el score | Con el score, un ataque de *hill-climbing* entra en unas 19 consultas |
+| Formato de la BD | CSV (`id,nonce,data`) | Lo exige el enunciado |
+| Clave | Fuera del repo y de la imagen Docker | Si la clave está al lado del CSV, cifrar no sirve de nada |
+| Persona 51 | Zohran Mamdani | Elección del grupo |
+| Docker | `python:3.12-slim` con `opencv-python-headless` | Imagen ligera, sin compilar nada |
+
+---
+
+## 6. Seguridad
+
+### Qué suponemos del atacante
+
+- Conoce todo el código y el modelo PCA, porque el repositorio es público para el grupo rival.
+- Puede leer el CSV y, en el peor caso, escribirlo. También se estudia el caso de que robe la clave.
+- Puede llamar a cualquiera de los 9 métodos, incluidos `_sd` y `_t`, saltándose así el detector y el extractor.
+
+### Defensas que tiene el sistema
+
+- **BD cifrada y autenticada** (AES-256-GCM por fila, id como dato asociado, manifiesto). Leerla sin la clave no da ningún template, y cualquier cambio se detecta.
+- **Falla cerrado.** Con un CSV manipulado, vacío, borrado o con otra clave, el sistema no opera.
+- **Borrar protegido.** Sin `FACEREC_ADMIN_TOKEN` no se puede borrar. La comparación del token es en tiempo constante.
+- **Ids validados** con una expresión regular completa (`fullmatch`), para que no cuele un salto de línea final, ni `=1+1`, ni `../x`, ni `__manifest__`.
+- **Imágenes sospechosas.** Se lee la cabecera antes de decodificar, para rechazar imágenes que declaran un tamaño enorme (bombas de descompresión). Tope de 20 MB y 8000 px por lado.
+- **Defensa "lobo".** Un template fabricado que se parece a muchos ids a la vez no es una cara. Si un template supera λ contra más de max(8, 15 % de los inscritos) ids, `verificar` lo rechaza. En las 50 fotos, un template legítimo supera λ contra 5 ids como mucho (incluido el suyo). La media de la BD supera λ contra 19, y un template optimizado contra la BD, contra 31.
+- **Límite de intentos.** 30 rechazos por minuto por id, y 30 en `identificar`. Guardado en disco, así que no se esquiva reiniciando el programa.
+- **Bloqueo de fichero.** Evita que dos inscripciones simultáneas se pisen. Antes de este parche, 6 inscripciones a la vez dejaban solo 2 a 4 en la BD, sin dar ningún error.
+- **Fotos ambiguas.** Dos caras de tamaño parecido se rechazan.
+- **Modelo cargado desde memoria.** Se comprueba el hash de YuNet y se lee en bytes (OpenCV no abre rutas con tildes en Windows).
+- **La terminal no enseña scores.**
+
+### Ataques probados (`python scripts/attacks.py`)
+
+Se ejecutan siempre sobre una copia de la BD. Resultados completos en `docs/results_attacks.json`.
+
+**Leer la base de datos**
+
+- Sin la clave: se ven los 50 ids en claro y bloques cifrados. No se obtiene ningún template.
+- Con la clave robada: se descifran los 50 templates y, con el PCA del repo, se reconstruye el mapa de bordes de cada cara (coseno medio de 0,88 con el real). Ver la figura:
+
+![reconstrucción](docs/figs/reconstruccion.png)
+
+**Escribir en la base de datos sin la clave**
+
+Se detectan todos estos: cambiar un bit, intercambiar templates entre dos ids, renombrar un id, borrar una fila, duplicar una fila, añadir una fila inventada, vaciar campos, dejar solo la cabecera, vaciar o borrar el CSV para inscribir a la víctima de nuevo, y `borrar` sin token.
+
+No se detecta:
+
+- **Rollback.** Si se restaura una copia antigua y completa del CSV, el sistema no se entera. Una persona dada de baja vuelve a estar inscrita.
+- **Con la clave robada**, poner el template del atacante bajo el id de la víctima. Con la clave, el atacante puede hacer cualquier cosa.
+
+**Saltarse partes del sistema**
+
+| Ataque | Resultado |
+|---|---|
+| `_t` con el template filtrado de la víctima | Se acepta. Es lo esperable: el template es la credencial |
+| `_t` con ceros, NaN, infinitos, longitud mala, 1e9 o texto | Se rechaza |
+| `_t` con el template medio de la BD | Supera λ contra 19 de 50 ids, pero la defensa lobo lo rechaza en los 50. `identificar_t` devuelve `None` |
+| `_t` con un template optimizado contra toda la BD | Supera λ contra 31 ids, pero la defensa lobo lo rechaza en los 50. Si el atacante optimiza contra 8 ids o menos a la vez, sí pasa (D17) |
+| `_t` con fuerza bruta (200.000 templates aleatorios, sin límite) | 1.177 aciertos contra un id concreto (0,59 %, unos 170 intentos por acierto). Con el límite por defecto, tras 30 intentos recibe `RateLimitError` |
+| `_t` con *hill-climbing* teniendo el score | Entra en unas 19 consultas. Por eso la terminal no da el score |
+| `identificar_sd` con imágenes que no son caras (gris, negro, ruido, degradado, tablero) | Ninguna se identifica |
+| `_sd` con una imagen de 10×10 | Se rechaza |
+| PNG de 100 a 250 KB que declara 9000×9000 o 16000×16000 | Se rechaza leyendo la cabecera |
+| Foto con dos caras del mismo tamaño (víctima y atacante) | Se rechaza por ambigua |
+| Reinscribir un id existente con otra cara | Se rechaza |
+| Ids maliciosos | Se rechazan |
+
+---
+
+## 7. Evaluación y resultados
+
+Se ejecuta con `python scripts/evaluate.py`. Resultados completos en `docs/results_eval.json` y figuras en `docs/figs/`.
+
+### Experimentos para elegir parámetros
+
+El EER en `calib` (más bajo es mejor) se movió siempre entre el 34,9 % y el 39 %. Las diferencias entre configuraciones son de 1 o 2 puntos. El techo lo pone el método (PCA, lineal y sin supervisión), no los parámetros. Se eligió 64×64, k = 150, whitening y σ = 1,2, que queda a menos de medio punto del mejor resultado.
+
+Sin whitening todo empeora unos 2 puntos. Las eigenfaces (PCA de píxeles, la referencia) dan 40,3 % sin whitening y 37,0 % con él, así que PCA GO es mejor pero por poco en fotos sin alterar. Los datos completos están en `docs/experiments.json`.
+
+### A. LFW test (836 personas que el sistema nunca vio)
 
 ![DET](docs/figs/lfw_det.png)
 
 | Métrica | Valor |
 |---|---|
 | Pares genuinos / impostores | 7.195 / 5.159.310 |
-| **EER** | **34,6 %** |
-| Con λ: FAR / FRR | 1,0 % / **83,7 %** |
+| EER | 34,6 % |
+| Con λ: FAR / FRR | 1,0 % / 83,7 % |
 | Identificación cerrada (galería de 418): rank-1 / rank-5 / rank-10 | 8,6 % / 16,5 % / 22,7 % |
-| Identificación abierta con λ_id: correctos / dice "desconocido" / FPIR | 3,6 % / 88,2 % / 7,8 %* |
+| Identificación abierta con λ_id: correctos / "desconocido" / FPIR | 3,6 % / 88,2 % / 7,8 % |
 
-\*λ_id está calibrado para una galería de 51 personas. Aquí la galería es de 418, por eso el FPIR sale por encima del 1 %.
+El FPIR sale por encima del 1 % porque λ_id está calibrado para 51 personas y aquí la galería es de 418.
 
 ![CMC](docs/figs/lfw_cmc.png)
 
-**Lectura:** las distribuciones de genuinos e impostores se solapan muchísimo. Con un FAR del 1 % se rechaza a 5 de cada 6 genuinos. Es coherente con la literatura: *eigenfaces* ronda el 60 % de acierto en LFW. LFW tiene pose, expresión y luz libres y una resolución baja.
+Las distribuciones de genuinos e impostores se solapan mucho. Con FAR del 1 % se rechaza a 5 de cada 6 genuinos. Es lo esperable: las eigenfaces rondan el 60 % de acierto en LFW, que tiene pose, expresión y luz libres y poca resolución.
 
-### B. Sistema real (50 inscritos)
+### B. El sistema real (50 inscritos)
 
-**Genuinos:** 120 fotos de LFW de 9 personas inscritas, comparadas contra su foto de inscripción del dataset del profe.
+Genuinos: 120 fotos de LFW de 9 personas inscritas, comparadas contra su foto de inscripción.
 
 | Persona | Fotos | Acepta `verificar` | Rank-1 | `identificar` correcto |
 |---|---:|---:|---:|---:|
@@ -272,25 +408,25 @@ Ejecutar `python scripts/evaluate.py`. Los resultados completos están en `docs/
 | james_phelps_(gemelo_weasley)_2011 | 1 | 0 % | 0 % | 0 % |
 | **Total** | **120** | **5,8 %** | **8,3 %** | **0 %** |
 
-**Impostores:** 4.911 fotos de personas no inscritas (LFW `test`).
-- FAR de `verificar` por comparación: **0,88 %**.
-- FPIR de `identificar` (con λ_id): **0,67 %**. Si se usara λ, sería del **33,8 %**.
+Impostores: 4.911 fotos de personas no inscritas. El FAR de `verificar` por comparación es del 0,88 %, y el FPIR de `identificar` con λ_id es del 0,67 % (con λ sería del 33,8 %).
 
-**Lectura:** el sistema casi nunca deja pasar a un impostor, pero tampoco reconoce a los genuinos cuando la foto es distinta de la de inscripción. Las peores son las de **grandes diferencias de edad**: Isabel II (1945 frente a los años 2000), Michael Jackson (1982 frente a los 2000) y Jackie Chan.
+Impostores con las propias fotos del profesor (50×49 pares, `pruebas_extra.py`): el FAR con λ sale alrededor del **2,5 %** (varía unas décimas según la máquina), no el 1 % calibrado en LFW. **37 de los 50 ids aceptan al menos a un impostor.** Ningún par supera λ_id. Esto pasa porque las fotos del profesor son de mejor calidad que las de LFW y los scores no están en la misma escala.
+
+El sistema casi nunca deja pasar a un impostor en LFW, pero tampoco reconoce bien a los genuinos cuando la foto es distinta de la de inscripción. Lo peor son las diferencias grandes de edad (Isabel II en 1945, Michael Jackson en 1982).
 
 ### C. Gemelos y hermanos
 
-| Foto | Objetivo | Resultado |
+| Foto | Contra quién | Resultado |
 |---|---|---|
-| Ashley Olsen (gemela) | mary-kate_olsen_2011 | Rechazada (score −0,03, rango 29) |
-| Oliver Phelps (gemelo) | james_phelps_(gemelo_weasley)_2011 | Rechazado (score 0,04, rango 15) |
-| Venus Williams (hermana, 17 fotos) | serenna_williams_2017 | Todas rechazadas. **En 2 fotos Serena sale como la más parecida (rango 1)** y en otra como rango 2 |
+| Ashley Olsen | mary-kate_olsen_2011 | Rechazada (score −0,03, puesto 29) |
+| Oliver Phelps | james_phelps_(gemelo_weasley)_2011 | Rechazado (score 0,04, puesto 15) |
+| Venus Williams (17 fotos) | serenna_williams_2017 | Todas rechazadas, pero en 2 fotos Serena sale la más parecida |
 
-Ojo: se rechazan porque el sistema rechaza casi todo, **no porque distinga gemelos**. Con un umbral más permisivo, o en identificación cerrada, Venus sería identificada como Serena en el 12 % de sus fotos.
+Se rechazan porque el umbral es muy estricto y rechaza casi todo, no porque el sistema distinga gemelos. Con un umbral más permisivo, Venus se identificaría como Serena en el 12 % de sus fotos.
 
 ### D. Robustez: PCA GO frente a PCA de píxeles
 
-Galería: una foto original por persona. Las fotos de prueba se alteran sintéticamente. La tabla muestra la aceptación de genuinos con FAR = 1 % (LFW `test`, 836 galería y 1.609 pruebas).
+Aceptación de genuinos con FAR = 1 % (LFW test, galería de 836 y 1.609 fotos de prueba alteradas a propósito).
 
 ![ejemplos](docs/figs/robustez_ejemplos.png)
 ![robustez](docs/figs/robustez.png)
@@ -298,164 +434,245 @@ Galería: una foto original por persona. Las fotos de prueba se alteran sintéti
 | Alteración | PCA GO | PCA píxeles |
 |---|---:|---:|
 | Original | 17,5 % | 14,8 % |
-| Oscura (γ=2,5) | **17,5 %** | 12,8 % |
-| Clara (γ=0,4) | **17,5 %** | 11,5 % |
-| Contraste ×0,4 | **17,5 %** | 12,1 % |
+| Oscura (γ = 2,5) | 17,5 % | 12,8 % |
+| Clara (γ = 0,4) | 17,5 % | 11,5 % |
+| Contraste ×0,4 | 17,5 % | 12,1 % |
 | Luz lateral | 12,5 % | 11,9 % |
-| Mascarilla | **8,9 %** | 6,7 % |
-| Gafas de sol | **12,2 %** | 5,5 % |
-| Media cara tapada | 4,4 % | **6,5 %** |
-| Ruido σ=15 | **16,2 %** | 14,6 % |
-| Desenfoque σ=2 | 16,5 % | **17,7 %** |
-| Baja resolución (16 px) | 15,7 % | **16,9 %** |
+| Mascarilla | 8,9 % | 6,7 % |
+| Gafas de sol | 12,2 % | 5,5 % |
+| Media cara tapada | 4,4 % | 6,5 % |
+| Ruido σ = 15 | 16,2 % | 14,6 % |
+| Desenfoque σ = 2 | 16,5 % | 17,7 % |
+| Baja resolución (16 px) | 15,7 % | 16,9 % |
 
-**Lectura:** se confirma la teoría.
-- PCA GO es **totalmente invariante a cambios globales de brillo y contraste**: el resultado no se mueve, mientras que PCA de píxeles pierde hasta 3 puntos.
-- Aguanta mucho mejor las **gafas de sol** (más del doble) y algo mejor la **mascarilla**.
-- Con **luz lateral** (sombras que crean bordes nuevos) pierde 5 puntos.
-- Con **media cara tapada** y con **desenfoque o baja resolución** es **peor** que PCA de píxeles, porque se pierden bordes.
+PCA GO no se mueve con los cambios globales de brillo y contraste, aguanta mejor las gafas de sol y algo mejor la mascarilla. Con luz lateral pierde 5 puntos, y con media cara tapada, desenfoque o poca resolución es peor que PCA de píxeles, porque se pierden bordes.
 
-### E. Ruta `_sd` (sin detector)
+### E. Ruta `_sd`
 
-- 120 fotos genuinas: con detector se acepta el **5,8 %**. Pasando a `verificar_sd` el recorte del detector **sin alinear**, el **2,5 %**. Se confirma que la alineación importa.
-- Imágenes que no son caras (gris uniforme, negro, ruido, degradado, tablero) en `identificar_sd`: **ninguna se identifica**. Pero una imagen gris uniforme saca un score de **0,171 contra adam_pearson_2024**, muy cerca de λ = 0,2035. Ver la debilidad D17.
+Con las 120 fotos genuinas, con detector se acepta el 5,8 %. Pasando a `verificar_sd` el recorte del detector sin alinear, el 2,5 %. La alineación importa. Una imagen gris uniforme saca 0,171 contra `adam_pearson_2024`, bastante cerca de λ = 0,2035.
 
----
+### F. Robustez sobre las 50 fotos de inscripción (`pruebas_extra.py`)
 
-## 8. Seguridad y ataques
+Probando cada foto de `data/` contra su propio template tras alterarla. Sobre 50:
 
-Ejecutar `python scripts/attacks.py`, que trabaja sobre una copia de la BD. Los resultados están en `docs/results_attacks.json`.
+| Alteración | Sin cara | Verificar OK | Identificar OK | Identificar mal |
+|---|---:|---:|---:|---:|
+| Original | 0 | 50 | 50 | 0 |
+| Espejo horizontal | 0 | 19 | 13 | 1 |
+| Rotación +5° | 0 | 50 | 50 | 0 |
+| Rotación −10° | 0 | 49 | 46 | 0 |
+| Rotación +20° | 0 | 36 | 25 | 0 |
+| Rotación 45° | 5 | 1 | 0 | 1 |
+| Escala 0,5 | 0 | 44 | 38 | 0 |
+| Escala 0,25 | 0 | 42 | 30 | 3 |
+| Escala 0,1 | 5 | 25 | 15 | 1 |
+| JPEG calidad 10 | 0 | 49 | 49 | 0 |
+| Ruido σ = 15 | 0 | 49 | 49 | 0 |
+| Ruido σ = 40 | 19 | 15 | 15 | 0 |
+| Oscura (γ = 2,5) | 0 | 49 | 47 | 0 |
+| Clara (γ = 0,4) | 0 | 50 | 50 | 0 |
+| Media cara negra | 11 | 5 | 4 | 1 |
 
-### Modelo de amenazas
-
-- El atacante **conoce todo el código y el modelo PCA**, porque el repo es público para el rival.
-- Puede **leer** y/o **escribir** el CSV. Para el caso peor, también se considera que **roba la clave**.
-- Puede llamar a cualquiera de los 9 métodos, incluidos `_sd` y `_t`, saltándose así el detector y el extractor.
-
-### Resultados
-
-**1. Lectura de la BD**
-
-| Ataque | Resultado |
-|---|---|
-| Leer el CSV sin la clave | Ve los **ids en claro** (50) y blobs cifrados. No obtiene ningún template |
-| Leer el CSV **con la clave robada** | Descifra los 50 templates y, con el modelo PCA del repo, **reconstruye el mapa de bordes** de la cara inscrita, con un coseno medio de 0,88 respecto al real (figura de abajo) |
-
-![reconstrucción](docs/figs/reconstruccion.png)
-
-**2. Escritura en la BD (sin clave)**
-
-| Ataque | Resultado |
-|---|---|
-| Modificar 1 bit de un template | ✅ Detectado |
-| Intercambiar templates entre dos ids | ✅ Detectado |
-| Renombrar el id de una fila | ✅ Detectado |
-| Borrar una fila | ✅ Detectado |
-| Duplicar una fila | ✅ Detectado |
-| Añadir una fila fabricada | ✅ Detectado |
-| Vaciar campos / dejar solo la cabecera | ✅ Detectado |
-| **Rollback**: restaurar una copia antigua completa del CSV | ❌ **No detectado**. Una persona dada de baja vuelve a estar inscrita |
-| **Con la clave robada**: poner mi template bajo el id de la víctima | ❌ **No detectado**. `verificar(víctima, foto_atacante) = True` |
-
-**3. Saltarse partes del sistema**
-
-| Ataque | Resultado |
-|---|---|
-| `_t` con el template filtrado de la víctima | ❌ Aceptado (es lo esperable: el template *es* la credencial) |
-| `_t` con ceros, NaN, inf, longitud incorrecta, 1e9 o texto | ✅ Rechazado |
-| `_t` con el **template medio** de todos los inscritos | ❌ `verificar_t` lo acepta para **19 de los 50 ids**. `identificar_t` devuelve `None` (score 0,330, justo por debajo de λ_id) |
-| `_t` **fuerza bruta** con 200.000 templates aleatorios | ❌ **1.177 aciertos contra un id concreto (0,59 %, unos 170 intentos por acierto)**. 161 aciertos de `identificar_t` contra alguien (0,08 %) |
-| `_t` *hill-climbing* **con acceso al score** | ❌ Entra en **19 consultas**. Por eso la CLI no devuelve el score |
-| `identificar_sd` con imágenes que no son caras | ✅ Ninguna se identifica |
-| `identificar` (con detector) con imágenes que no son caras | ✅ Rechazado (no se detecta ninguna cara) |
-| `_sd` con una imagen de 10×10 | ✅ Rechazado |
-| Ids maliciosos (`=cmd\|...`, `../../`, vacío, 100 caracteres, `__manifest__`) | ✅ Rechazados |
-| Reinscribir un id existente con otra cara | ✅ Rechazado |
-| `verificar` con un id que no existe | ✅ `False`, sin revelar que no existe |
+"Identificar mal" quiere decir que devolvió a **otra persona** (no "desconocido"). Es lo más grave de la tabla.
 
 ---
 
-## 9. Debilidades conocidas
+## 8. Cómo probar el sistema
 
-Lista completa de los fallos que conocemos. Si el rival encuentra uno que no está aquí, es un fallo nuestro.
+### Lo básico
+
+```bash
+python -m pytest -q                  # 39 tests, unos 5-15 segundos
+python scripts/pruebas_extra.py      # fotos reales, robustez, seguridad y concurrencia
+```
+
+`pruebas_extra.py` se puede lanzar por bloques con `--solo reales`, `--solo robustez`, `--solo seguridad` o `--solo concurrencia`. No necesita LFW. Si todo va bien, todas las líneas de seguridad salen con `[OK]`.
+
+Qué comprueban los tests (en `tests/test_system.py`):
+
+- los 9 métodos y el flujo normal de inscribir, verificar e identificar;
+- que no se puede sobrescribir un id y que `borrar` exige el token;
+- ids inválidos, templates inválidos, foto sin cara;
+- BD cifrada, manipulada, con clave incorrecta, vacía o borrada;
+- bomba de descompresión, respaldo de Pillow, todas las fotos de `data/` se cargan;
+- defensa lobo, límite de intentos (con y sin límite), bloqueo huérfano;
+- inscripciones simultáneas con hilos;
+- dos caras de tamaño parecido y una cara dominante.
+
+### La batería de ataques
+
+```bash
+python scripts/attacks.py
+```
+
+Si queréis evaluar el sistema de otro grupo, la batería se puede reutilizar cambiando las llamadas a `SistemaBiometrico`.
+
+### Probar con vuestras fotos
+
+```bash
+python scripts/probar_fotos.py --id zohran-mamdani tests/mamdani
+python scripts/probar_fotos.py tests/presentacion
+python scripts/probar_fotos.py --id taylor_swift_2009 foto1.jpg foto2.jpg
+```
+
+Por defecto usa una base de datos temporal con las fotos de `data/` y no toca `db/` ni `secrets/`. Con `--real` usa vuestra BD de verdad (hay que haber hecho `init`).
+
+Para saber qué persona se espera en cada foto, mira por este orden: el `--id` si lo hay, el texto antes de `__` en el nombre del fichero (`taylor_swift_2009__pantalla1.jpg` espera `taylor_swift_2009`), o el nombre del fichero o carpeta si coincide con un inscrito.
+
+Por cada foto da si se detecta la cara, el score contra su id, la posición en el ranking, el resultado de `verificar` y de `identificar`, y al final un resumen por persona.
+
+### Fotos simuladas
+
+`python scripts/generar_pruebas.py` crea tres carpetas a partir de las fotos de `data/`:
+
+- `tests/mamdani_simulada/`: 12 variantes de Mamdani (más oscura, más clara, luz lateral, desenfocada, con ruido, girada, espejo, gafas de sol, mascarilla...).
+- `tests/presentacion_simulada/`: cinco personas, cada una "fotografiada" en pantalla y en papel impreso.
+- `tests/varias_caras_simulada/`: tres fotos con dos caras.
+
+**Son simulaciones, no sustituyen a fotos reales.** Cada carpeta lleva un `LEEME.txt` que lo dice. Resultados con ellas:
+
+- Mamdani: 10 de 12 aceptadas. Fallan el espejo (score 0,05) y las gafas de sol (−0,07). La mascarilla pasa, pero con score bajo (0,46).
+- Pantalla e impresa: las 10 se verifican (puesto 1). Dos impresas, Idris Elba y Lady Gaga, salen como "desconocido" en `identificar` porque quedan por debajo de λ_id.
+- Dos caras iguales: error por ambigua. Una cara claramente mayor que la otra: se procesa y acierta.
+
+### Fotos reales (pendiente de hacer)
+
+Lo que más falta son estas tres cosas, hechas con fotos de verdad:
+
+1. 5 a 10 fotos de Mamdani en `tests/mamdani/`, variadas (luz, gafas, edad, expresión).
+2. Fotos hechas con el móvil a una foto impresa y a una pantalla, de 3 a 5 inscritos, en `tests/presentacion/`, con nombres como `idpersona__impresa1.jpg` e `idpersona__pantalla1.jpg`.
+3. Una o dos fotos reales con dos personas, en `tests/varias_caras/`.
+
+Estas carpetas no deben ir a `data/` (eso cambiaría la BD), y conviene no subirlas al repositorio: añadidlas al `.gitignore`.
+
+---
+
+## 9. Limitaciones conocidas
+
+Esta es la lista de lo que sabemos que falla o que no cubrimos. Los números D son fijos para que se puedan citar.
 
 ### Reconocimiento
-- **D1. Precisión baja con fotos reales.** EER del 34,6 % en LFW. Con λ se rechaza al 84 % de los genuinos, y en el sistema real se acepta solo el 5,8 % de fotos genuinas distintas de la de inscripción. Es una limitación del propio PCA GO (lineal y no supervisado), no un bug. En fotos controladas (frontales, buena luz) funciona mejor.
+
+- **D1. Precisión baja con fotos reales.** EER del 34,6 % en LFW. Con λ se rechaza al 84 % de los genuinos, y en el sistema real solo se acepta el 5,8 % de las fotos genuinas distintas de la de inscripción. Es un límite de PCA GO (lineal y sin supervisión), no un fallo del código. Con fotos controladas (frontales y con buena luz) funciona mejor.
 - **D2. Edad.** Con diferencias grandes (Isabel II en 1945, Michael Jackson en 1982) el acierto es del 0 %.
-- **D3. Pose.** Con la cara girada o de perfil, los bordes cambian de sitio y falla. No está medido aparte, pero LFW incluye pose libre.
-- **D4. Expresión fuerte** (boca abierta, ojos cerrados): mueve los bordes, con el mismo efecto que la pose.
-- **D5. Dependencia de la alineación.** Si YuNet sitúa mal los ojos, falla. Por la ruta `_sd` no hay alineación y el acierto baja del 5,8 % al 2,5 %.
-- **D6. Oclusiones grandes.** Con media cara tapada, PCA GO es **peor** que PCA de píxeles (4,4 % frente a 6,5 %). La mascarilla también lo baja a la mitad.
-- **D7. Luz lateral fuerte.** Las sombras crean bordes nuevos y el acierto baja de 17,5 % a 12,5 %. Solo es invariante a cambios **globales** de luz.
-- **D8. Desenfoque y baja resolución.** Se pierden los bordes, y aquí PCA de píxeles es igual o mejor.
-- **D9. Gemelos y hermanos.** No los distingue: Venus Williams sale como la persona más parecida a Serena en 2 de 17 fotos. Se rechazan solo porque el umbral es muy estricto.
-- **D10. "Lobos".** Algunos inscritos atraen más falsos positivos que otros. Por ejemplo, `aitana_etxebarria_(twin_melody)_2024` y `christian_bale_2012` con λ_id, y `christian_bale_2012`, `leticia_sabater_1996` y `keanu_reeves_2021` con λ.
+- **D3. Pose.** Con la cara girada o de perfil, los bordes cambian de sitio y falla.
+- **D4. Expresión fuerte** (boca abierta, ojos cerrados): mueve los bordes igual que la pose.
+- **D5. Depende de la alineación.** Si YuNet coloca mal los ojos, falla. Por `_sd`, que no alinea, el acierto baja del 5,8 % al 2,5 %.
+- **D6. Oclusiones grandes.** Con media cara tapada, PCA GO es peor que PCA de píxeles (4,4 % frente a 6,5 %). La mascarilla lo baja a la mitad.
+- **D7. Luz lateral fuerte.** Las sombras crean bordes nuevos y el acierto baja del 17,5 % al 12,5 %. Solo es invariante a cambios globales de luz.
+- **D8. Desenfoque y poca resolución.** Se pierden los bordes, y ahí PCA de píxeles es igual o mejor.
+- **D9. Gemelos y hermanos.** No los distingue. Venus Williams sale como la persona más parecida a Serena en 2 de 17 fotos. Solo se rechaza porque el umbral es muy estricto.
+- **D10. "Lobos" entre los inscritos.** Algunos inscritos atraen más falsos positivos que otros. Con λ_id, `aitana_etxebarria_(twin_melody)_2024` y `christian_bale_2012`. Con λ, `christian_bale_2012`, `leticia_sabater_1996` y `keanu_reeves_2021`.
 - **D11. Una sola foto de inscripción.** El template depende de esa foto concreta (luz, expresión, edad).
-- **D12. Posible sesgo demográfico.** El PCA está entrenado con LFW, que tiene sobre todo hombres, personas de piel clara y políticos de EE. UU. de los años 2000. No está medido.
+- **D12. Posible sesgo demográfico.** El PCA se entrenó con LFW, que tiene sobre todo hombres, piel clara y políticos de EE. UU. de los años 2000. No lo hemos medido.
+- **D33. Identificación errónea.** Con la foto a escala 0,25, `identificar` devuelve otra persona en 3 de 50 casos (Adele → Zoe Saldana, Josie Totah → Santiago Segura, Mary-Kate Olsen → Ariana Grande). Con una foto reflejada (como la de la cámara frontal), Willem Dafoe sale como Idris Elba, y además solo 19 de 50 se verifican bien.
 
 ### Detector y presentación
-- **D13. Sin detección de vida.** Una foto impresa o en pantalla de la víctima funciona igual que la víctima. No está medido (ver §10).
-- **D14. Varias caras.** Se coge la más grande, así que un atacante puede poner delante una foto grande de otra persona.
-- **D15. `_sd` acepta cualquier imagen como cara.** No comprueba que sea una cara: solo exige un mínimo de 32 px.
+
+- **D13. Sin detección de vida.** Una foto impresa o en una pantalla funciona como la persona real. Con las fotos simuladas se verifican las 10. Falta probarlo con fotos reales hechas con una cámara.
+- **D14. Varias caras.** Gana la más grande, salvo que haya otra con el 50 % o más de su área (entonces error). Con una cara claramente dominante, quien la ponga más grande decide con quién se compara. Medido con composiciones: 400/400 px es ambigua, 700/200 px usa la grande.
+- **D15. `_sd` acepta cualquier imagen como si fuera una cara.** Solo exige un mínimo de 32 px.
 
 ### Interfaz `_t`
-- **D16. Fuerza bruta con templates aleatorios.** El 0,59 % de los intentos pasa `verificar_t` contra un id concreto, unos 170 intentos por acierto. **No hay límite de intentos.**
-- **D17. Template medio ("wolf").** La media de los templates inscritos pasa `verificar_t` para 19 de los 50 ids. Con imágenes sin cara por `_sd` el score se queda cerca de λ (0,17 frente a 0,20).
-- **D18. Hill-climbing.** Si el atacante tiene el score (`puntuar()` y `ranking()` de la librería Python, pensados para evaluación), entra en unas 19 consultas. La CLI no lo expone, pero cualquiera que importe la librería sí puede usarlo.
-- **D19. Template robado = credencial.** Quien tenga un template válido pasa `verificar_t`. Un template no se puede "revocar": la cara es la misma.
+
+- **D16. Fuerza bruta con templates aleatorios.** Pasa el 0,59 % de los intentos contra un id concreto. Está **mitigado, no resuelto**: el límite de 30 rechazos por minuto lo pasa de segundos a horas. El límite se desactiva con `FACEREC_RATE_LIMIT=0`, y quien pueda escribir en `db/` puede borrar `<bd>.ratelimit.json`.
+- **D17. Template medio o optimizado.** La defensa lobo los rechaza (tope de 8 ids), pero un atacante con la BD descifrada puede optimizar un template contra 8 ids o menos a la vez, y ese pasa. Con imágenes sin cara por `_sd` el score se queda cerca de λ (0,17 frente a 0,20).
+- **D18. Hill-climbing.** La terminal no da el score, pero la librería sí (`puntuar()` y `ranking()` existen para evaluar). Cualquiera que la importe puede hacer hill-climbing y entrar en unas 19 consultas.
+- **D19. Un template robado es una credencial.** Quien tenga un template válido pasa `verificar_t`. No se puede revocar, porque la cara es la misma.
 
 ### Base de datos y ficheros
-- **D20. Rollback.** Restaurar una copia antigua completa del CSV no se detecta. Haría falta un contador monotónico guardado fuera del CSV.
-- **D21. Ids en claro.** Leer el CSV revela quién está inscrito.
-- **D22. Robo de la clave = control total.** Permite descifrar, reconstruir el mapa de bordes de cada cara inscrita (coseno 0,88) y meter templates propios. La clave está en `secrets/db.key`, en la misma máquina que la BD.
-- **D23. Modelos no autenticados.** `models/threshold.json` y `models/pca_igo.npz` no van firmados. Quien pueda escribir en `models/` puede, por ejemplo, poner `"lambda": -1` y aceptar a todo el mundo. El hash del PCA se comprueba contra `threshold.json`, pero ese fichero también se puede modificar.
-- **D24. Sin bloqueo de fichero.** Dos escrituras simultáneas pueden perder una inscripción. La escritura es atómica, pero no hay *lock*.
-- **D25. Decodificación de imágenes no confiables.** Se usa OpenCV, y sus vulnerabilidades serían las nuestras. Se limita el tamaño a 20 MB y a 8000 px.
+
+- **D20. Rollback.** Restaurar una copia antigua completa del CSV no se detecta. Haría falta un contador que suba siempre, guardado fuera del CSV.
+- **D21. Los ids se ven en claro y se puede saber si existen.** Leer el CSV revela quién está inscrito. Además `inscribir` ("ya inscrito"), `borrar` y `listar` revelan si un id existe.
+- **D22. Robo de la clave = control total.** Permite descifrar, reconstruir el mapa de bordes de cada cara y meter templates propios. La clave está en `secrets/db.key`, en la misma máquina que la BD.
+- **D23. Modelos sin firmar.** `models/threshold.json` y `models/pca_igo.npz` no están firmados. Quien pueda escribir en `models/` puede poner por ejemplo `"lambda": -1` y aceptar a todo el mundo. El hash del PCA se comprueba contra `threshold.json`, pero ese fichero también se puede cambiar.
+- **D24. Bloqueo de fichero.** Funciona entre procesos que usen este código. Si un proceso muere con el bloqueo puesto, caduca a los 60 s. Quien edite el CSV a mano se salta el bloqueo.
+- **D25. Decodificación de imágenes no confiables.** Se usa OpenCV, y sus vulnerabilidades serían las nuestras. Hay límite de 20 MB y 8000 px, y se comprueba la cabecera de PNG, JPEG y BMP. WEBP solo queda protegido por la variable `OPENCV_IO_MAX_IMAGE_PIXELS`.
+- **D28. El token de administrador.** Quien controle el entorno donde corre el sistema puede definir `FACEREC_ADMIN_TOKEN`. Solo protege contra quien llama a la librería o a la terminal sin el token.
+- **D29. `_sd` con fotos completas.** Redimensiona toda la imagen a 64×64 sin recortar. Una foto entera (sin recortar a la cara) da un template distinto al de `inscribir`. Falta definir qué recorte esperamos en `_sd`.
+- **D30. Rutas con tildes en Windows.** OpenCV no abre ficheros si la ruta tiene tildes o `º`. Por eso YuNet se carga desde memoria. Para las fotos, mejor trabajar en una ruta sin acentos (`C:\proyectos`).
+- **D31. Fotos con extensión engañosa.** `aitana_etxebarria_(twin_melody)_2024.jpg` es en realidad AVIF y `falete_2018.jpg` es WEBP. OpenCV puede no abrirlas, así que `load_image` usa Pillow de respaldo. Sin Pillow, `init` falla en esas fotos y queda en 48 o 49 inscritos.
+- **D32. Denegación de servicio por el límite de intentos.** Quien provoque 30 rechazos seguidos contra un id lo bloquea para su dueño durante 60 s.
 
 ### Umbrales
-- **D26. Compromiso de seguridad frente a usabilidad.** λ y λ_id son muy estrictos. Con λ_id, `identificar` no reconoce a ningún genuino del sistema real (0 %). Bajar los umbrales dispara los falsos positivos: con λ en identificación, 1 de cada 3 desconocidos se identifica como alguien.
-- **D27. Umbrales calibrados en LFW.** Las fotos del dataset del profe son de mejor calidad, así que los scores pueden no estar en la misma escala.
+
+- **D26. Seguridad frente a usabilidad.** λ y λ_id son muy estrictos. Con λ_id, `identificar` no reconoce a ningún genuino del sistema real (0 %). Bajarlos dispara los falsos positivos: con λ en `identificar`, 1 de cada 3 desconocidos se identifica como alguien.
+- **D27. Umbrales calibrados en LFW.** Las fotos del profesor son de mejor calidad, así que los scores no tienen la misma escala. Medido: el FAR con λ es de alrededor del 2,5 % entre las 50 fotos del profesor, no el 1 % buscado.
 
 ---
 
-## 10. Pendiente
+## 10. Reentrenar el modelo
 
-- [ ] **Persona que falta:** el enunciado dice 50 fotos del profe + 1 nuestra = 51, pero `data/` tiene **49 del profe + Mamdani = 50**. Hay que confirmar con el profe si falta una foto.
-- [ ] **Más fotos de Mamdani** (5–10, variadas) para probar al inscrito nº 51: ponerlas en `tests/mamdani/` (no en `data/`).
-- [ ] **Ataques de presentación** (D13): foto impresa y foto en la pantalla del móvil de varios inscritos. Hay que hacerlos a mano con una cámara.
-- [ ] **Construir la imagen Docker** (`docker compose build`). El Dockerfile está escrito, pero no se pudo construir en el entorno de desarrollo porque Docker Hub no estaba accesible. El código se ha probado con las mismas versiones de librerías.
-- [ ] **Evaluar el sistema del grupo rival** con los mismos scripts de ataques, adaptando las llamadas.
-- [ ] Posibles mejoras, si da tiempo: límite de intentos en `_t` (D16), contador anti-rollback (D20) y firma de `models/` (D23).
+Solo hace falta si queréis cambiar parámetros o rehacer la evaluación.
 
----
+```bash
+pip install -r requirements-dev.txt
 
-## 11. Estructura del repositorio
+# 0. Descargar LFW (unos 230 MB). Necesita scikit-learn
+python -c "from sklearn.datasets import fetch_lfw_people; fetch_lfw_people()"
 
-```
-facerec/
-  config.py      parámetros (tamaños, rutas, umbrales del detector)
-  detector.py    carga de imágenes, YuNet, alineación, recorte _sd
-  igo.py         vector IGO, PCA (entrenar/proyectar/reconstruir), coseno
-  db.py          CSV cifrado AES-GCM + manifiesto
-  system.py      SistemaBiometrico: los 9 métodos + borrar/listar
-  metrics.py     FAR/FRR/EER, umbrales, CMC
-  __main__.py    CLI (python -m facerec ...)
-scripts/
-  prepare_lfw.py detector + alineación sobre LFW, splits
-  experiments.py elección de tamaño, k, whitening y blur
-  train.py       PCA definitivo + calibración de λ y λ_id
-  evaluate.py    evaluación (bloques A–E) + figuras
-  attacks.py     batería de ataques
-models/          YuNet (.onnx), PCA (.npz), umbrales (.json)
-data/            fotos de inscripción (49 del profe + Mamdani)
-docs/            resultados (.json) y figuras
-tests/           pytest (21 tests)
-Dockerfile, docker-compose.yml, requirements*.txt
+# 1. Pasar LFW por el detector y la alineación, y crear los splits (~1 min)
+python scripts/prepare_lfw.py --lfw ~/scikit_learn_data/lfw_home/lfw_funneled
+
+# 2. Experimentos de parámetros (~4 min)
+python scripts/experiments.py
+
+# 3. Entrenar el PCA definitivo y calibrar λ y λ_id
+python scripts/train.py
+
+# 4. Rehacer la BD
+python -m facerec init --force
+
+# 5. Evaluación y ataques
+python scripts/evaluate.py --lfw ~/scikit_learn_data/lfw_home/lfw_funneled
+python scripts/attacks.py
 ```
 
+Los splits de LFW se hacen por persona, para que nadie aparezca en dos:
+
+| Split | Fotos | Personas | Para qué |
+|---|---:|---:|---|
+| `train` | 4.065 | 4.065 | Entrenar el PCA (personas con una sola foto) |
+| `calib` | 4.118 | 836 | Elegir parámetros y calibrar λ y λ_id |
+| `test` | 4.911 | 836 | Solo la evaluación final. Nunca se usó para decidir nada |
+| `overlap` | 120 | 9 | Famosos que también están inscritos |
+| `twin` | 19 | 3 | Ashley Olsen, Oliver Phelps y Venus Williams |
+
+En `calib` y `test` hay como mucho 10 fotos por persona, para que George W. Bush (530 fotos) no domine.
+
 ---
 
-## 12. Referencias
+## 11. Problemas típicos
+
+**`DBIntegrityError` al arrancar.** La BD no existe, está vacía, la manipularon o la clave no es la que la cifró. Si es una instalación nueva, hay que ejecutar `python -m facerec init`.
+
+**`RateLimitError`.** Demasiados rechazos seguidos. Esperad un minuto o poned `FACEREC_RATE_LIMIT=0`.
+
+**`borrar` dice que está deshabilitado.** Falta definir `FACEREC_ADMIN_TOKEN` antes de ejecutarlo.
+
+**`init` deja 48 o 49 inscritos en vez de 50.** Seguramente falta Pillow (`pip install -r requirements.txt`). Ver D31.
+
+**En Windows, el modelo o las fotos no se abren.** Mirad si la ruta del proyecto tiene tildes, `º` o espacios raros. Moved el proyecto a algo como `C:\proyectos\repo`.
+
+**`git clone` falla en Windows.** Hay que usar la URL que termina en `.git` y el parámetro `-b` con la rama: `git clone -b feat/pca-go-system https://github.com/paolagdiazz/face-recognition-sys.git`.
+
+**Un test o una foto da `FaceError`.** No se detectó ninguna cara, o hay dos de tamaño parecido. Probad con otra foto.
+
+---
+
+## 12. Pendiente
+
+- **Confirmar con el profesor el número de fotos.** El enunciado habla de 51 personas, pero `data/` tiene 49 del profesor más Mamdani, es decir, 50.
+- Comprobar contra la lista completa de nombres de LFW que no hay más personas del dataset del profesor en `train` (ahora solo se excluyen 9).
+- Definir qué recorte espera `_sd` (D29) y documentarlo para el grupo rival.
+- Hacer las pruebas con fotos reales (apartado 8): Mamdani, impresa, pantalla y varias caras.
+- Construir la imagen Docker (`docker compose build`). El `Dockerfile` está escrito, pero no se pudo construir porque Docker Hub no estaba accesible. El código se probó con las mismas versiones de las librerías.
+- Evaluar el sistema del otro grupo con los mismos scripts de ataques, adaptando las llamadas.
+- Si da tiempo: un contador anti-rollback (D20) y la firma de `models/` (D23).
+
+---
+
+## 13. Referencias
 
 - G. Tzimiropoulos, S. Zafeiriou, M. Pantic. *Subspace Learning from Image Gradient Orientations*. IEEE TPAMI 34(12), 2012.
 - G. B. Huang et al. *Labeled Faces in the Wild: A Database for Studying Face Recognition in Unconstrained Environments*. UMass Amherst TR 07-49, 2007.

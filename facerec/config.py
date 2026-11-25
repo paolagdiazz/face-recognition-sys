@@ -34,6 +34,26 @@ DEFAULT_KEY_PATH = ROOT / "secrets" / "db.key"
 KEY_ENV_VAR = "FACEREC_DB_KEY"        # clave en base64 (32 bytes)
 KEY_FILE_ENV_VAR = "FACEREC_DB_KEY_FILE"
 DB_PATH_ENV_VAR = "FACEREC_DB_PATH"
+ADMIN_TOKEN_ENV_VAR = "FACEREC_ADMIN_TOKEN"   # sin él, `borrar` está deshabilitado
+
+# Varias caras: si la 2ª cara tiene al menos esta fracción del área de la mayor,
+# la foto es ambigua y se rechaza (en vez de elegir una en silencio).
+MULTI_FACE_RATIO = 0.5
+
+# Defensa "lobo": una plantilla que supera λ contra más de max(WOLF_MIN_IDS,
+# WOLF_FRACTION*N) ids a la vez no es una cara, es una plantilla fabricada.
+# (Medido: una plantilla legítima acepta como mucho 5 ids; la media de la BD, 19.)
+WOLF_MIN_IDS = 8
+WOLF_FRACTION = 0.15
+
+# Límite de intentos fallidos (ver facerec/ratelimit.py)
+RATE_LIMIT_ENV_VAR = "FACEREC_RATE_LIMIT"      # 0 = desactivado
+RATE_LIMIT_DEFAULT = 30                        # rechazos por ventana y clave
+RATE_WINDOW_S = 60.0
+
+# Bloqueo de fichero de la BD (ver facerec/filelock.py)
+LOCK_TIMEOUT_S = 15.0
+LOCK_STALE_S = 60.0
 
 # Límites de validación de entradas
 MAX_ID_LEN = 64

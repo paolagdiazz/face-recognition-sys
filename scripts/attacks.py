@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import csv
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -32,6 +33,7 @@ from facerec.detector import align_face, load_image  # noqa: E402
 from facerec.system import SistemaBiometrico, TemplateError  # noqa: E402
 
 DATA = C.ROOT / "data"
+os.environ.setdefault(C.RATE_LIMIT_ENV_VAR, "0")   # la batería hace muchas llamadas fallidas
 
 
 def read_rows(p):
@@ -138,11 +140,21 @@ def main():
 
     # rollback de fichero completo
     snapshot = db_path.read_bytes()
-    sysm.borrar(victim)                       # el admin da de baja a la víctima...
+    os.environ[C.ADMIN_TOKEN_ENV_VAR] = "token-solo-para-este-script"
+    sysm.borrar(victim, "token-solo-para-este-script")   # el admin da de baja a la víctima...
     db_path.write_bytes(snapshot)             # ...el atacante restaura la copia antigua
     W["rollback: restaurar una copia antigua completa del CSV"] = (
         try_load(sysm) + " -> la persona dada de baja vuelve a estar inscrita")
     reset()
+
+    # CSV vacío / borrado (solo permiso de escritura, sin clave): ya NO es "BD vacía"
+    db_path.write_bytes(b""); W["vaciar el CSV (0 bytes)"] = try_load(sysm); reset()
+    db_path.unlink(); W["borrar el fichero CSV"] = try_load(sysm); reset()
+    try:
+        sysm.borrar(victim)
+        W["borrar un id SIN token de administrador"] = "ACEPTADO (¡suplantación posible!)"
+    except PermissionError as e:
+        W["borrar un id SIN token de administrador"] = f"RECHAZADO ({e})"
 
     # con la clave robada: sustituir el template de la víctima por el del atacante
     att_t = sysm.extraer(attacker_photo)
@@ -178,7 +190,8 @@ def main():
     mean_t = Gn.mean(0)
     s = Gn @ (mean_t / np.linalg.norm(mean_t))
     T["_t con el template medio de todos los inscritos"] = {
-        "ids_que_acepta_verificar_t": int((s >= lam).sum()),
+        "ids_que_superan_lambda": int((s >= lam).sum()),
+        "ids_que_acepta_verificar_t_real": int(sum(sysm.verificar_t(k, mean_t) for k in ids)),
         "identificar_t": sysm.identificar_t(mean_t),
         "mejor_score": round(float(s.max()), 4)}
 
@@ -228,7 +241,7 @@ def main():
         T["_sd con imagen de 10x10"] = f"RECHAZADO ({e})"
 
     # ids maliciosos
-    for bad_id in ["=cmd|' /C calc'!A0", "../../etc/passwd", "", "a" * 100, "__manifest__"]:
+    for bad_id in ["=cmd|' /C calc'!A0", "../../etc/passwd", "", "a" * 100, "__manifest__", "ana\n"]:
         try:
             sysm.inscribir_t(bad_id, leaked)
             T[f"inscribir id {bad_id[:20]!r}"] = "ACEPTADO"
