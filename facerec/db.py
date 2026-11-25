@@ -14,6 +14,10 @@ Formato (`db/templates.csv`):
     * mover el template de un id a otro se detecta (el AAD no cuadra).
 - La fila `__manifest__` autentica el conjunto de filas: borrar, añadir o
   duplicar filas sin la clave se detecta.
+- Un CSV que no existe o está vacío NO se interpreta como "BD vacía": es un
+  error de integridad (fail closed). Solo `create_empty()` (usado por `init`)
+  crea una BD nueva. Así, quien solo puede escribir en db/ no puede vaciarla y
+  re-inscribirse con el id de otra persona.
 - Lo que NO protege (documentado): restaurar una copia ANTIGUA completa del
   CSV (rollback) y que los ids se ven en claro.
 
@@ -36,10 +40,12 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from . import config as C
+from .filelock import FileLock
 
 MANIFEST_ID = "__manifest__"
 AAD_PREFIX = b"facerec-pcago-v1|"
-ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _\-().']{0,%d}$" % (C.MAX_ID_LEN - 1))
+# Se usa fullmatch: con match + "$", un "\n" final se colaba (el $ casa antes de él).
+ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _\-().']{0,%d}" % (C.MAX_ID_LEN - 1))
 HEADER = ["id", "nonce", "data"]
 
 
@@ -52,7 +58,7 @@ class DBIntegrityError(DBError):
 
 
 def validate_id(pid: str) -> str:
-    if not isinstance(pid, str) or not ID_RE.match(pid) or pid == MANIFEST_ID:
+    if not isinstance(pid, str) or not ID_RE.fullmatch(pid) or pid == MANIFEST_ID:
         raise ValueError("id no válido: 1-64 caracteres [A-Za-z0-9 _-().'], empezando por letra o número")
     return pid
 
@@ -96,6 +102,10 @@ class TemplateDB:
         self._aes = AESGCM(key)
         self.dim = dim
 
+    def lock(self) -> FileLock:
+        """Bloqueo exclusivo para operaciones leer-modificar-escribir (evita perder inscripciones)."""
+        return FileLock(self.path.with_name(self.path.name + ".lock"))
+
     # -- cifrado de una fila --
     def _enc(self, pid: str, payload: bytes) -> tuple[str, str]:
         nonce = secrets.token_bytes(12)
@@ -120,12 +130,12 @@ class TemplateDB:
     # -- lectura / escritura --
     def load(self) -> dict[str, np.ndarray]:
         """Lee y verifica TODO el CSV. Lanza DBIntegrityError si algo no cuadra."""
-        if not self.path.exists():
-            return {}
+        if not self.path.is_file():
+            raise DBIntegrityError(f"no existe la BD ({self.path}); créala con `init`")
         with open(self.path, newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
         if not rows:
-            return {}
+            raise DBIntegrityError("la BD está vacía (0 bytes): borrada o truncada")
         if rows[0] != HEADER:
             raise DBIntegrityError("cabecera del CSV no válida")
         body = rows[1:]
@@ -148,6 +158,12 @@ class TemplateDB:
                 raise DBIntegrityError(f"template de longitud incorrecta (id={pid!r})")
             out[pid] = np.frombuffer(raw, dtype="<f4").copy()
         return out
+
+    def create_empty(self) -> None:
+        """Crea una BD nueva y válida (solo cabecera + manifiesto). Falla si ya existe."""
+        if self.path.exists():
+            raise DBError(f"la BD ya existe: {self.path}")
+        self.save({})
 
     def save(self, templates: dict[str, np.ndarray]) -> None:
         rows = []

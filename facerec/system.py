@@ -13,7 +13,9 @@ Variantes:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import math
 import os
 from pathlib import Path
 
@@ -23,8 +25,9 @@ from . import config as C
 from .db import DBError, TemplateDB, load_key, validate_id
 from .detector import Detector, FaceError, align_face, crop_without_detector, load_image
 from .igo import PCAModel, igo_vector
+from .ratelimit import RateLimiter, RateLimitError
 
-__all__ = ["SistemaBiometrico", "FaceError", "DBError", "TemplateError"]
+__all__ = ["SistemaBiometrico", "FaceError", "DBError", "TemplateError", "RateLimitError"]
 
 TEMPLATE_ABS_MAX = 1e3   # los templates (whitened) tienen componentes ~N(0,1)
 
@@ -35,7 +38,7 @@ class TemplateError(ValueError):
 
 class SistemaBiometrico:
     def __init__(self, db_path: str | Path | None = None, key: bytes | None = None,
-                 threshold: float | None = None):
+                 threshold: float | None = None, crear_bd: bool = False):
         info = json.loads(C.THRESHOLD_PATH.read_text())
         digest = hashlib.sha256(C.PCA_MODEL_PATH.read_bytes()).hexdigest()
         if digest != info["pca"]["sha256"]:
@@ -50,6 +53,9 @@ class SistemaBiometrico:
         self.detector = Detector()
         db_path = Path(db_path or os.environ.get(C.DB_PATH_ENV_VAR) or C.DEFAULT_DB_PATH)
         self.db = TemplateDB(db_path, key if key is not None else load_key(), self.model.k)
+        self.limiter = RateLimiter(db_path.with_name(db_path.name + ".ratelimit.json"))
+        if crear_bd and not db_path.exists():
+            self.db.create_empty()      # solo `init` (o los tests) crean la BD
 
     # ------------------------------------------------------------------
     # Extracción
@@ -121,23 +127,40 @@ class SistemaBiometrico:
     # ------------------------------------------------------------------
     def _inscribir(self, pid: str, template: np.ndarray) -> np.ndarray:
         validate_id(pid)
-        db = self.db.load()
-        if pid in db:
-            raise ValueError(f"el id {pid!r} ya está inscrito (bórralo antes con `borrar`)")
-        db[pid] = template
-        self.db.save(db)
+        with self.db.lock():      # leer-modificar-escribir en exclusiva: no se pierden inscripciones
+            db = self.db.load()
+            if pid in db:
+                raise ValueError(f"el id {pid!r} ya está inscrito (bórralo antes con `borrar`)")
+            db[pid] = template
+            self.db.save(db)
         return template
 
     def _verificar(self, pid: str, template: np.ndarray) -> bool:
         validate_id(pid)
         db = self.db.load()
-        if pid not in db:
-            return False          # id desconocido = rechazo (no se distingue del fallo)
-        return self.similitud(db[pid], template) >= self.threshold
+        # los ids que no existen comparten clave, para no llenar el registro de intentos
+        key = pid if pid in db else "*desconocido"
+        self.limiter.check(key)
+        ok = False
+        if pid in db:
+            names = list(db)
+            G = np.stack([db[n] for n in names]).astype(np.float64)
+            t = np.asarray(template, np.float64)
+            sc = G @ t / (np.linalg.norm(G, axis=1) * np.linalg.norm(t) + 1e-12)
+            # Defensa "lobo": una plantilla que se parece a demasiados ids a la vez
+            # (p. ej. la media de la BD) está fabricada: se rechaza.
+            n_over = int((sc >= self.threshold).sum())
+            max_ids = max(C.WOLF_MIN_IDS, math.ceil(C.WOLF_FRACTION * len(names)))
+            ok = bool(sc[names.index(pid)] >= self.threshold and n_over <= max_ids)
+        if not ok:
+            self.limiter.fail(key)
+        return ok                 # id desconocido = rechazo (no se distingue del fallo)
 
     def _identificar(self, template: np.ndarray) -> str | None:
+        self.limiter.check("*identificar")
         r = self.ranking(template)
         if not r or r[0][1] < self.threshold_ident:
+            self.limiter.fail("*identificar")
             return None           # identificación abierta: "desconocido"
         return r[0][0]
 
@@ -174,13 +197,25 @@ class SistemaBiometrico:
     # ------------------------------------------------------------------
     # Extras
     # ------------------------------------------------------------------
-    def borrar(self, id: str) -> None:
+    def borrar(self, id: str, token: str | None = None) -> None:
+        """Baja de un id. Solo con el token de administrador (FACEREC_ADMIN_TOKEN).
+
+        Sin esto, `borrar` + `inscribir` equivale a sobrescribir el id de otra
+        persona, y la regla "no se puede reinscribir un id" no protegería nada.
+        Si la variable no está definida, el borrado está deshabilitado.
+        """
+        expected = os.environ.get(C.ADMIN_TOKEN_ENV_VAR)
+        if not expected:
+            raise PermissionError(f"borrado deshabilitado: define {C.ADMIN_TOKEN_ENV_VAR}")
+        if token is None or not hmac.compare_digest(str(token), expected):
+            raise PermissionError("token de administrador incorrecto")
         validate_id(id)
-        db = self.db.load()
-        if id not in db:
-            raise KeyError(f"id no inscrito: {id!r}")
-        del db[id]
-        self.db.save(db)
+        with self.db.lock():
+            db = self.db.load()
+            if id not in db:
+                raise KeyError(f"id no inscrito: {id!r}")
+            del db[id]
+            self.db.save(db)
 
     def inscritos(self) -> list[str]:
         return sorted(self.db.load())

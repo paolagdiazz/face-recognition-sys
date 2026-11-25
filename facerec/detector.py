@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,59 @@ class FaceError(ValueError):
 # --------------------------------------------------------------------------
 # Carga de imágenes
 # --------------------------------------------------------------------------
+def _peek_dims(data: np.ndarray) -> tuple[int, int] | None:
+    """(ancho, alto) leído de la CABECERA, sin decodificar. PNG, JPEG y BMP.
+
+    Defensa extra contra "bombas de descompresión": un PNG de 250 KB puede
+    declarar 16000x16000 px y hacer que imdecode reserve >1 GB.
+    """
+    b = bytes(data[:4096]) if len(data) > 4096 else bytes(data)
+    if b[:8] == b"\x89PNG\r\n\x1a\n" and len(b) >= 24:
+        return int.from_bytes(b[16:20], "big"), int.from_bytes(b[20:24], "big")
+    if b[:2] == b"BM" and len(b) >= 26:
+        return (abs(int.from_bytes(b[18:22], "little", signed=True)),
+                abs(int.from_bytes(b[22:26], "little", signed=True)))
+    if b[:2] == b"\xff\xd8":
+        raw = bytes(data)
+        i = 2
+        while i + 9 < len(raw):
+            if raw[i] != 0xFF:
+                i += 1
+                continue
+            m = raw[i + 1]
+            if m in (0xD8, 0x01) or 0xD0 <= m <= 0xD7 or m == 0xFF:
+                i += 1 if m == 0xFF else 2
+                continue
+            seg = int.from_bytes(raw[i + 2:i + 4], "big")
+            if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
+                return (int.from_bytes(raw[i + 7:i + 9], "big"),
+                        int.from_bytes(raw[i + 5:i + 7], "big"))
+            i += 2 + seg
+    return None
+
+
+def _decode_with_pillow(data: np.ndarray) -> np.ndarray | None:
+    """Respaldo cuando cv2.imdecode falla (OpenCV de PyPI no trae AVIF/HEIC).
+
+    Comprueba las dimensiones leyendo solo la cabecera, antes de decodificar.
+    Devuelve BGR uint8, o None si Pillow no está instalado o tampoco puede.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        im = Image.open(io.BytesIO(data.tobytes()))
+        w, h = im.size
+        if min(w, h) < 1 or max(w, h) > C.MAX_IMAGE_SIDE:
+            raise FaceError(f"dimensiones de imagen no válidas: {w}x{h}")
+        return cv2.cvtColor(np.asarray(im.convert("RGB")), cv2.COLOR_RGB2BGR)
+    except FaceError:
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def load_image(foto) -> np.ndarray:
     """Acepta ruta, bytes o array (BGR/gris). Devuelve imagen BGR uint8."""
     if isinstance(foto, np.ndarray):
@@ -36,9 +90,15 @@ def load_image(foto) -> np.ndarray:
             data = np.frombuffer(foto, dtype=np.uint8)
         else:
             raise FaceError(f"tipo de foto no soportado: {type(foto).__name__}")
+        dims = _peek_dims(data)
+        if dims is not None and (max(dims) > C.MAX_IMAGE_SIDE or min(dims) < 1):
+            raise FaceError(f"dimensiones de imagen no válidas: {dims[0]}x{dims[1]}")
         img = cv2.imdecode(data, cv2.IMREAD_COLOR)
         if img is None:
-            raise FaceError("no se pudo decodificar la imagen")
+            img = _decode_with_pillow(data)
+        if img is None:
+            raise FaceError("no se pudo decodificar la imagen (formato no soportado o fichero "
+                            "corrupto; si es AVIF/HEIC con otra extensión, instala pillow)")
     if img.dtype != np.uint8:
         raise FaceError("la imagen debe ser uint8")
     if img.ndim == 2:
@@ -77,21 +137,26 @@ class Face:
         return (a, b) if a[0] <= b[0] else (b, a)
 
 
-def _check_model(path: Path) -> None:
+def _check_model(path: Path) -> bytes:
+    """Lee el modelo, comprueba su hash y devuelve sus bytes."""
     if not path.is_file():
         raise FileNotFoundError(f"falta el modelo del detector: {path}")
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != C.YUNET_SHA256:
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != C.YUNET_SHA256:
         raise RuntimeError("el modelo del detector no coincide con el hash esperado")
+    return data
 
 
 class Detector:
     def __init__(self, model_path: Path = C.YUNET_PATH,
                  score_threshold: float = C.DET_SCORE_THRESHOLD):
-        _check_model(Path(model_path))
+        data = _check_model(Path(model_path))
         self.score_threshold = score_threshold
+        # El modelo se carga desde MEMORIA, no desde la ruta: OpenCV en Windows no
+        # abre ficheros cuya ruta tiene tildes o "º" (p. ej. "4º/Biométricos").
         self._net = cv2.FaceDetectorYN.create(
-            str(model_path), "", (320, 320), score_threshold, C.DET_NMS_THRESHOLD, 5000)
+            "onnx", np.frombuffer(data, dtype=np.uint8), np.empty(0, dtype=np.uint8),
+            (320, 320), score_threshold, C.DET_NMS_THRESHOLD, 5000)
 
     def detect(self, img: np.ndarray) -> list[Face]:
         h, w = img.shape[:2]
@@ -115,11 +180,17 @@ class Detector:
         return faces
 
     def best_face(self, img: np.ndarray) -> Face:
-        """Política: de todas las caras válidas se coge la de mayor área."""
-        faces = self.detect(img)
+        """Política: se coge la cara de mayor área, salvo que haya otra de tamaño parecido.
+
+        Si la 2ª cara tiene >= MULTI_FACE_RATIO del área de la mayor, la foto es
+        ambigua (¿de quién es?) y se rechaza en lugar de elegir en silencio.
+        """
+        faces = sorted(self.detect(img), key=lambda f: -f.area)
         if not faces:
             raise FaceError("no se ha detectado ninguna cara")
-        return max(faces, key=lambda f: f.area)
+        if len(faces) > 1 and faces[1].area >= C.MULTI_FACE_RATIO * faces[0].area:
+            raise FaceError("hay varias caras de tamaño parecido: usa una foto con una sola cara")
+        return faces[0]
 
 
 # --------------------------------------------------------------------------
